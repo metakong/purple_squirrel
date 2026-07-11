@@ -22,6 +22,35 @@ function truncateMessages(messages, maxTokens) {
   return out;
 }
 
+// Normalize a message array to a provider's constraints at the send boundary.
+// This is the single place provider quirks are reconciled, so conversation
+// history and primary->fallback hand-offs are covered — not just freshly built
+// messages (the bug that produced the logged Mistral/Gemini 400s). Two rules:
+//   - noToolRole (e.g. Mistral): rewrite every role:'tool' result into a plain
+//     user message and drop assistant tool_calls. Mistral 400s both on a 'tool'
+//     role after 'system' and on dangling tool_calls.
+//   - all providers: guarantee a non-empty name on tool results. Google's
+//     OpenAI-compat shim maps this to function_response.name and rejects "".
+function normalizeForProvider(messages, prov) {
+  let msgs = messages.map(m => (m.role === 'tool'
+    ? { ...m, name: (m.name && String(m.name).trim()) || 'tool' }
+    : m));
+  if (prov && prov.noToolRole) {
+    msgs = msgs.map(m => {
+      if (m.role === 'tool') {
+        return { role: 'user', content: `[Tool result for ${m.name || 'tool'}]: ${String(m.content).slice(0, 4000)}` };
+      }
+      if (m.role === 'assistant' && m.tool_calls) {
+        const called = m.tool_calls.map(t => t.function && t.function.name).filter(Boolean).join(', ');
+        const content = called ? `${m.content || ''}\n[Called tools: ${called}]`.trim() : (m.content || '');
+        return { role: 'assistant', content };
+      }
+      return m;
+    });
+  }
+  return msgs;
+}
+
 function parseRetryAfter(res, bodyText) {
   let retry = res.headers.get('retry-after');
   if (!retry) {
@@ -61,7 +90,7 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
       const lease = keypool.acquire(route.provider, keys);
       if (!lease) { lastErr = new Error(`All keys for "${route.provider}" are in cooldown.`); break; }
 
-      let msgs = messages;
+      let msgs = normalizeForProvider(messages, prov);
       if (prov.maxInputTokens) msgs = truncateMessages(msgs, prov.maxInputTokens);
 
       // Use streaming if provider supports it and callback is provided
@@ -258,4 +287,4 @@ async function parseStreamingResponse(res, provider, onDelta, started, sessionId
   return { message, usage };
 }
 
-module.exports = { chatCompletion, estTokens };
+module.exports = { chatCompletion, estTokens, normalizeForProvider };

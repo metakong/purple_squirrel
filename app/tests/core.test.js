@@ -130,6 +130,40 @@ test('sessions: save/load/list roundtrip', () => {
   assert.ok(sessions.list().some(s => s.id === sid));
 });
 
+test('providers: normalizeForProvider fixes Mistral tool-role and Gemini empty-name 400s', () => {
+  const { normalizeForProvider } = require('../lib/providers');
+  // History as stored canonically by agent.js: assistant tool_call followed by
+  // a named tool result — the shape sent to a fallback route (was the Mistral 400).
+  const history = [
+    { role: 'system', content: 'sys' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 't1', type: 'function', function: { name: 'view_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 't1', name: 'view_file', content: 'file body' },
+    { role: 'user', content: 'thanks' }
+  ];
+
+  // noToolRole provider (Mistral): no 'tool' role may survive, and dangling
+  // assistant tool_calls must be stripped.
+  const mistral = normalizeForProvider(history, { noToolRole: true });
+  assert.ok(!mistral.some(m => m.role === 'tool'), 'no tool role remains for noToolRole provider');
+  assert.ok(mistral.some(m => m.role === 'user' && /Tool result for view_file/.test(m.content)), 'tool result folded into a user message with its name');
+  assert.ok(!mistral.some(m => m.tool_calls), 'assistant tool_calls stripped');
+  assert.ok(/Called tools: view_file/.test(mistral[1].content), 'called-tool context preserved on the assistant turn');
+
+  // Standard OpenAI-compat provider (Gemini shim): tool role kept as-is.
+  const gemini = normalizeForProvider(history, { noToolRole: false });
+  assert.deepStrictEqual(gemini.find(m => m.role === 'tool').name, 'view_file', 'tool name preserved');
+
+  // Gemini empty-name guard: a tool result with no name must never send "".
+  const guarded = normalizeForProvider(
+    [{ role: 'tool', tool_call_id: 't9', name: '', content: 'x' }],
+    { noToolRole: false }
+  );
+  assert.ok(guarded[0].name && guarded[0].name.length > 0, 'empty function_response.name coerced to non-empty');
+
+  // Non-mutating: the original history is left untouched for other routes.
+  assert.strictEqual(history[1].tool_calls.length, 1, 'input array not mutated');
+});
+
 test('config: custom providers merge without overriding built-ins', () => {
   const { getProviders } = require('../lib/config');
   const merged = getProviders({ customProviders: {

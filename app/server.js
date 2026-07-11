@@ -6,6 +6,7 @@
 'use strict';
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const configStore = require('./lib/config');
 const keypool = require('./lib/keypool');
@@ -216,9 +217,18 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// Pre-flight hardware safety check: the target is an 8 GB unified-memory ARM64
+// laptop, so agentic execution under memory pressure risks host OOM instability.
+const LOW_MEM_THRESHOLD = 2 * 1024 * 1024 * 1024; // 2 GB
+
 server.listen(PORT, '127.0.0.1', () => {
   const v = vault.vaultStatus();
   console.log(`\n  🐿  Purple Squirrel — VibeCode Command Center`);
   console.log(`  →  http://localhost:${PORT}`);
   console.log(`  →  secrets vault: ${v.exists ? (v.encrypted ? 'DPAPI-encrypted' : 'PLAINTEXT (DPAPI unavailable)') : 'not created yet'}\n`);
+  const freeMem = os.freemem();
+  if (freeMem < LOW_MEM_THRESHOLD) {
+    // ANSI yellow — stands out without failing startup.
+    console.log(`\x1b[33m  ⚠  Low Memory Warning: Less than 2GB RAM available (${(freeMem / (1024 ** 3)).toFixed(2)} GB free). Agentic execution may cause system instability.\x1b[0m\n`);
+  }
 });

@@ -7,7 +7,6 @@ const path = require('path');
 const { chatCompletion } = require('./providers');
 const { TOOL_DEFS, executeTool } = require('./tools');
 const { projectOutline } = require('./walker');
-const { getProviders } = require('./config');
 const trace = require('./trace');
 const heartbeat = require('./heartbeat');
 const agora = require('./agora');
@@ -49,7 +48,6 @@ Rules:
  */
 async function runAgent({ root, config, history, userMessage, sessionId, emit, approvals, auditLog }) {
   trace.setEnabled(config.settings.traceEnabled !== false);
-  const registry = getProviders(config);
 
   // Respect a live foreign session lock (multi-agent coordination).
   const foreign = heartbeat.foreignLock();
@@ -152,11 +150,12 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
           trace.span({ kind: 'tool_call', sessionId, name: tc.function.name, status: 'error', error: String(e.message).slice(0, 300) });
         }
         emit({ type: 'tool_result', name: tc.function.name, result: String(result).slice(0, 4000) });
-        // Some providers (like Mistral) don't support 'tool' role, so use 'user' role for tool results
-        const prov = activeRoute ? registry[activeRoute.provider] : null;
-        const toolRole = prov && prov.noToolRole ? 'user' : 'tool';
-        const toolContent = toolRole === 'tool' ? String(result) : `[Tool result for ${tc.function.name}]: ${String(result).slice(0, 4000)}`;
-        messages.push({ role: toolRole, tool_call_id: tc.id, content: toolContent });
+        // Store tool results in canonical OpenAI shape, always carrying the
+        // function name (Google's OpenAI-compat shim rejects an empty
+        // function_response.name). Provider-specific rewriting — e.g. Mistral's
+        // noToolRole — happens once at the send boundary in providers.js, so
+        // stored history and primary->fallback hand-offs are covered too.
+        messages.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name || 'tool', content: String(result) });
       }
     }
     emit({ type: 'text', text: '(Stopped: reached max agent iterations. Increase the limit in Settings if needed.)' });
