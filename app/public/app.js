@@ -284,7 +284,7 @@ async function send() {
 function handleEvent(ev) {
   switch (ev.type) {
     case 'status': addMsg('status', ev.text); break;
-    case 'route': { const b = $('#routeBadge'); b.textContent = `${ev.provider}/${ev.model}`; b.classList.add('accent'); break; }
+    case 'route': { const b = $('#routeBadge'); b.textContent = `${ev.provider}/${ev.model}`; b.classList.add('accent'); window.currentAssistantMsg = null; break; }
     case 'text': showTyping(false); addMsg('assistant', ev.text); showTyping(true); window.currentAssistantMsg = null; break;
     case 'text_delta': 
       // Handle streaming text deltas

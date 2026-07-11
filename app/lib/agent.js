@@ -104,7 +104,7 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
     const maxIter = config.settings.maxIterations || 25;
     let agoraReminded = false;
     for (let iter = 0; iter < maxIter; iter++) {
-      const { message, route } = await chatCompletion({
+      const { message, route, streamed } = await chatCompletion({
         config, messages, tools: TOOL_DEFS, sessionId,
         onStatus: (s) => emit({ type: 'status', text: s }),
         onDelta: (delta) => emit(delta)
@@ -120,8 +120,9 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
       }
       messages.push(assistantMsg);
 
-      // Only emit full text if we didn't stream it (for non-streaming providers)
-      if (message.content && !route.streamUsed) emit({ type: 'text', text: message.content });
+      // Only emit full text if it wasn't already streamed as deltas — otherwise
+      // the client renders the assistant turn twice (streamed bubble + full text).
+      if (message.content && !streamed) emit({ type: 'text', text: message.content });
 
       if (!message.tool_calls || message.tool_calls.length === 0) {
         // The Agora ritual: one gentle enforcement round if the agent tried to

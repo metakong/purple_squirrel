@@ -142,7 +142,7 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
             toolCalls: (message.tool_calls || []).length,
             status: 'ok', latencyMs: Date.now() - started
           });
-          return { message, usage, route };
+          return { message, usage, route, streamed: true };
         }
 
         // Handle non-streaming response
@@ -161,7 +161,7 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
           toolCalls: (choice.message.tool_calls || []).length,
           status: 'ok', latencyMs: Date.now() - started
         });
-        return { message: choice.message, usage, route };
+        return { message: choice.message, usage, route, streamed: false };
       } catch (e) {
         if (e.name === 'TimeoutError' || e.name === 'AbortError') {
           keypool.recordResult(route.provider, lease.index, false, Date.now() - started);
