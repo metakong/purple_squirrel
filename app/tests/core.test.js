@@ -207,6 +207,27 @@ test('providers: parseStreamingResponse survives malformed chunks without throwi
   assert.strictEqual(message.content, 'ok!', 'valid chunks still accumulate around a corrupt one');
 });
 
+test('config: validate flags unknown providers, missing model, bad port, bad custom endpoints', () => {
+  const { validate } = require('../lib/config');
+  const warnings = validate({
+    port: 99999,
+    routing: { primary: { provider: 'nope', model: 'x' }, fallback: { provider: 'groq', model: '' } },
+    customProviders: { 'good-prov': { endpoint: 'https://e.example/v1' }, 'Bad Id': { endpoint: 'http://insecure' } }
+  });
+  const joined = warnings.join('\n');
+  assert.match(joined, /unknown provider "nope"/);
+  assert.match(joined, /no model set for provider "groq"/);
+  assert.match(joined, /not a valid TCP port/);
+  assert.match(joined, /"Bad Id": id must be/);
+  assert.match(joined, /"Bad Id": endpoint must be an https/);
+  assert.ok(!/good-prov/.test(joined), 'a valid custom provider produces no warning');
+});
+
+test('config: validate passes the shipped default config clean', () => {
+  const { validate, DEFAULT_CONFIG } = require('../lib/config');
+  assert.deepStrictEqual(validate(structuredClone(DEFAULT_CONFIG)), []);
+});
+
 test('sandbox: degrades gracefully when WSL is unavailable', async () => {
   const sandbox = require('../lib/sandbox');
   const r = await sandbox.runInSandbox('echo hi', { _isAvailable: () => false });

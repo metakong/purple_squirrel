@@ -15,10 +15,8 @@ _Last curated: 2026-07-11 by `anthropic/claude-opus-4-8`._
 **Remaining:** Inject a fetch shim (`chatCompletion({ ..., _fetch })` defaulting to global `fetch`) — note this also needs `getKeys` decoupled/injected since `chatCompletion` reads the vault via `config.getKeys`. Then cover: 429/402/503 cooldown + key rotation, primary→fallback degradation, and the `streamed:true/false` contract end-to-end. Also consider requesting `stream_options:{include_usage:true}` for streaming providers so usage actually flows (gate per-provider — some strict endpoints 400 on unknown fields).
 **Effort:** M. **Files:** `app/lib/providers.js`, `app/lib/config.js`, `app/tests/core.test.js`.
 
-### 2. Startup configuration validation
-**Why:** `data/config.json` is user-editable. A bad `routing.provider`, out-of-range `port`, or malformed `customProviders` currently fails late and obscurely.
-**Approach:** In `config.load()` (or a new `validate()`), warn (don't crash) on: routing provider not in the merged registry, non-integer/privileged port, custom provider without an `https://` endpoint. Print a yellow console summary at boot, mirroring the low-RAM warning style. Add unit tests.
-**Effort:** S. **Files:** `app/lib/config.js`, `app/server.js`, `app/tests/core.test.js`.
+### 2. Startup configuration validation — SHIPPED (2026-07-11)
+**Delivered:** `config.validate(cfg)` returns human-readable warnings for unknown routing providers, missing models, invalid ports, and malformed `customProviders` (bad id / non-https endpoint). Never throws. `server.js` prints them in yellow at boot, alongside the low-RAM warning. Tests cover the flagged cases and a clean default. **Follow-up:** optionally surface these in the UI Settings dialog too.
 
 ---
 

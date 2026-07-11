@@ -104,6 +104,30 @@ function getSecrets() {
 
 function getKeys(provider) { return getSecrets().providers[provider] || []; }
 
+/**
+ * Validate a config for common misconfigurations. Returns an array of
+ * human-readable warning strings (empty = clean). Never throws — surfaced at
+ * startup so a bad edit fails loudly and early instead of mid-run.
+ */
+function validate(cfg) {
+  const warnings = [];
+  const providers = getProviders(cfg);
+  for (const role of ['primary', 'fallback']) {
+    const r = cfg.routing && cfg.routing[role];
+    if (!r) continue;
+    if (r.provider && !providers[r.provider]) warnings.push(`routing.${role}: unknown provider "${r.provider}" (not in the registry).`);
+    if (r.provider && !r.model) warnings.push(`routing.${role}: no model set for provider "${r.provider}".`);
+  }
+  if (!Number.isInteger(cfg.port) || cfg.port < 1 || cfg.port > 65535) {
+    warnings.push(`port: ${cfg.port} is not a valid TCP port (1–65535).`);
+  }
+  for (const [id, p] of Object.entries(cfg.customProviders || {})) {
+    if (!/^[a-z0-9_-]{2,32}$/.test(id)) warnings.push(`customProviders."${id}": id must be 2–32 chars of a-z 0-9 _ -.`);
+    if (!p || !/^https:\/\//.test(p.endpoint || '')) warnings.push(`customProviders."${id}": endpoint must be an https:// URL.`);
+  }
+  return warnings;
+}
+
 function addKey(provider, key, weight) {
   const s = getSecrets();
   if (!s.providers[provider]) s.providers[provider] = [];
@@ -117,4 +141,4 @@ function removeKey(provider, index) {
   return vault.saveSecrets(s);
 }
 
-module.exports = { load, save, PROVIDERS, getProviders, DEFAULT_CONFIG, getKeys, addKey, removeKey, CONFIG_PATH };
+module.exports = { load, save, PROVIDERS, getProviders, DEFAULT_CONFIG, getKeys, addKey, removeKey, validate, CONFIG_PATH };

@@ -233,4 +233,7 @@ server.listen(PORT, '127.0.0.1', () => {
     // ANSI yellow — stands out without failing startup.
     console.log(`\x1b[33m  ⚠  Low Memory Warning: Less than 2GB RAM available (${(freeMem / (1024 ** 3)).toFixed(2)} GB free). Agentic execution may cause system instability.\x1b[0m\n`);
   }
+  for (const w of configStore.validate(config)) {
+    console.log(`\x1b[33m  ⚠  Config: ${w}\x1b[0m`);
+  }
 });
