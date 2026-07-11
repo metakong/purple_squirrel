@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Purple Squirrel — VibeCode Command Center</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🐿️</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="brand-icon">🐿️</span><span class="brand-name">Purple&nbsp;Squirrel</span><span class="brand-sub">VibeCode Command Center</span></div>
+  <div class="project-bar">
+    <input id="projectDir" placeholder="C:\path\to\your\project" list="recentDirs" spellcheck="false">
+    <datalist id="recentDirs"></datalist>
+    <button id="openBtn" class="btn primary">Open</button>
+  </div>
+  <div class="hud">
+    <span id="usageBadge" class="chip" title="Session token usage (in ▸ out)">◈ 0 ▸ 0</span>
+    <span id="routeBadge" class="chip" title="Active model route">no route</span>
+    <span id="vaultBadge" class="chip" title="Secrets vault status">🔓 vault</span>
+  </div>
+  <div class="yolo-strip" title="YOLO autonomy toggles — live">
+    <label class="switch" title="Auto-approve file edits"><input type="checkbox" id="qYoloEdits"><span class="slider"></span><em>edits</em></label>
+    <label class="switch" title="Auto-run terminal commands"><input type="checkbox" id="qYoloCmds"><span class="slider"></span><em>cmds</em></label>
+    <label class="switch" title="Tier-3 guardrails (governance policy)"><input type="checkbox" id="qGuardrails"><span class="slider"></span><em>guard</em></label>
+  </div>
+  <button id="settingsBtn" class="btn ghost" title="Settings">⚙</button>
+</header>
+
+<main>
+  <aside id="fileTreePane">
+    <div class="pane-title">Workspace <button id="refreshTreeBtn" class="mini-btn" title="Rescan">↻</button></div>
+    <input id="treeFilter" placeholder="filter files…" spellcheck="false">
+    <div id="fileTree" class="tree"><em class="dim">Open a project to scan files…</em></div>
+  </aside>
+
+  <section id="chatPane">
+    <div id="chatLog"></div>
+    <div id="approvalBox" class="hidden"></div>
+    <form id="chatForm">
+      <textarea id="chatInput" rows="3" placeholder="Describe what to build or fix…  (Ctrl+Enter to send)" spellcheck="false"></textarea>
+      <div class="chat-actions">
+        <span class="hint dim">Every agent action + its “why” is traced locally</span>
+        <button type="button" id="resetBtn" class="btn ghost" title="Clear conversation">↺ reset</button>
+        <button type="submit" id="sendBtn" class="btn primary">Send ▶</button>
+      </div>
+    </form>
+  </section>
+
+  <aside id="rightPane">
+    <div class="tabs">
+      <button data-tab="viewer" class="active">Viewer</button>
+      <button data-tab="trace">Trace</button>
+      <button data-tab="audit">Audit</button>
+      <button data-tab="keys">Keys</button>
+    </div>
+    <div id="tab-viewer" class="tab-body"><pre id="viewer" class="dim">Select a file, or watch live diffs appear here…</pre></div>
+    <div id="tab-trace" class="tab-body hidden">
+      <div class="trace-toolbar">
+        <select id="traceKind">
+          <option value="">all spans</option>
+          <option value="tool_call">tool calls</option>
+          <option value="llm_call">LLM calls</option>
+          <option value="agent_turn">turns</option>
+          <option value="approval">approvals</option>
+        </select>
+        <button id="traceRefresh" class="mini-btn" title="Refresh">↻</button>
+        <button id="handoffBtn" class="mini-btn" title="Handoff digest for the next agent/human">📜 handoff</button>
+      </div>
+      <div id="traceList"></div>
+    </div>
+    <div id="tab-audit" class="tab-body hidden"><div id="auditList"></div></div>
+    <div id="tab-keys" class="tab-body hidden"><div id="keyStatus"></div></div>
+  </aside>
+</main>
+
+<dialog id="settingsDlg">
+  <h2>Settings</h2>
+
+  <h3>Autonomy (YOLO mode)</h3>
+  <div class="setting-grid">
+    <label class="switch big"><input type="checkbox" id="setAutoEdits"><span class="slider"></span><em>Auto-approve file edits<small>Skip diff confirmation; diffs still stream to the Viewer</small></em></label>
+    <label class="switch big"><input type="checkbox" id="setAutoCmds"><span class="slider"></span><em>Auto-run commands<small>Skip approval for Tier-1 PowerShell commands</small></em></label>
+    <label class="switch big"><input type="checkbox" id="setGuardrails"><span class="slider"></span><em>Governance guardrails<small>Enforce Tier-3 blocks from governance/AGENTS.policy.json</small></em></label>
+    <label class="switch big"><input type="checkbox" id="setMistralConsent"><span class="slider"></span><em>Mistral consent<small>Their free tier may train on your prompts/files</small></em></label>
+    <label class="switch big"><input type="checkbox" id="setOutline"><span class="slider"></span><em>Outline context compression<small>Send structural signatures instead of full files</small></em></label>
+    <label class="switch big"><input type="checkbox" id="setTrace"><span class="slider"></span><em>Vibe Trace<small>Append-only local reasoning/action trace (data/traces)</small></em></label>
+  </div>
+  <label class="inline-num">Max agent iterations <input type="number" id="setMaxIter" min="1" max="100"></label>
+
+  <h3>Model routing</h3>
+  <div class="route-row"><span>Primary</span><select id="routePrimaryProvider"></select><input id="routePrimaryModel" placeholder="model id, e.g. qwen/qwen3-coder:free" spellcheck="false"></div>
+  <div class="route-row"><span>Fallback</span><select id="routeFallbackProvider"></select><input id="routeFallbackModel" placeholder="model id, e.g. llama-3.3-70b-versatile" spellcheck="false"></div>
+
+  <h3>API keys <span id="vaultNote" class="dim"></span></h3>
+  <div id="keysEditor"></div>
+  <div class="route-row">
+    <select id="newKeyProvider"></select>
+    <input id="newKeyValue" placeholder="paste free-tier API key" type="password">
+    <input id="newKeyWeight" type="number" value="1" min="1" max="10" title="priority weight" class="num">
+    <button id="addKeyBtn" type="button" class="btn">Add</button>
+  </div>
+
+  <div class="dlg-actions">
+    <button id="saveSettingsBtn" class="btn primary">Save</button>
+    <button id="closeSettingsBtn" type="button" class="btn ghost">Close</button>
+  </div>
+</dialog>
+
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run test suite
+        working-directory: app
+        run: node --test tests/core.test.js
+      - name: Server boot smoke test
+        working-directory: app
+        shell: pwsh
+        run: |
+          $p = Start-Process node -ArgumentList 'server.js' -PassThru -NoNewWindow
+          Start-Sleep -Seconds 4
+          $res = Invoke-WebRequest -Uri 'http://localhost:4477/api/config' -UseBasicParsing
+          if ($res.StatusCode -ne 200) { exit 1 }
+          Stop-Process -Id $p.Id -Force

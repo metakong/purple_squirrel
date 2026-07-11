@@ -1,0 +1,22 @@
+# --- user data & secrets (never commit) ---
+data/
+*.vault
+.env
+.env.*
+
+# --- volatile agent state (Sovereign Agent standard) ---
+.agent/run/
+
+# --- runtime noise ---
+node_modules/
+logs/
+*.log
+*.tmp
+.vibe_tmp_*
+
+# --- OS / editor ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vs/
+.idea/

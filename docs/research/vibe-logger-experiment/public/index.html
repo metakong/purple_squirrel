@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibe Logger - AI Agent Activity Tracker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <span class="logo-icon">🤖</span>
+                    <h1>Vibe Logger</h1>
+                </div>
+                <div class="header-actions">
+                    <button id="clearLogs" class="btn btn-danger">
+                        <span class="btn-icon">🗑️</span> Clear Logs
+                    </button>
+                    <button id="exportLogs" class="btn btn-secondary">
+                        <span class="btn-icon">📥</span> Export
+                    </button>
+                    <div class="stats-preview" id="statsPreview">
+                        <span id="totalActions">0</span> actions
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <h3>Filters</h3>
+                    <div class="filter-group">
+                        <label for="typeFilter">Type</label>
+                        <select id="typeFilter" class="filter-select">
+                            <option value="all">All Types</option>
+                            <option value="action">Actions</option>
+                            <option value="system">System</option>
+                            <option value="command">Commands</option>
+                            <option value="file">File Operations</option>
+                            <option value="api">API Calls</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="modelFilter">Model</label>
+                        <select id="modelFilter" class="filter-select">
+                            <option value="all">All Models</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="searchFilter">Search</label>
+                        <input type="text" id="searchFilter" class="filter-input" placeholder="Search logs...">
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>Statistics</h3>
+                    <div class="stats-container" id="sidebarStats">
+                        <div class="stat-item">
+                            <span class="stat-label">Total Actions</span>
+                            <span class="stat-value" id="sidebarTotal">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Session Time</span>
+                            <span class="stat-value" id="sessionTime">00:00:00</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Models Used</span>
+                            <span class="stat-value" id="modelsUsed">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>Recent Models</h3>
+                    <div class="model-list" id="recentModels">
+                        <p class="empty-state">No models yet</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Log Display Area -->
+            <section class="log-container">
+                <div class="log-header">
+                    <h2>Activity Log</h2>
+                    <div class="log-controls">
+                        <button id="scrollToBottom" class="btn btn-small btn-primary">
+                            <span class="btn-icon">↓</span> Bottom
+                        </button>
+                        <button id="pauseAutoScroll" class="btn btn-small btn-secondary">
+                            <span class="btn-icon">⏸️</span> Pause
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="log-display" id="logDisplay">
+                    <div class="empty-state">
+                        <span class="empty-icon">📝</span>
+                        <p>No logs yet. AI actions will appear here.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Timeline Visualization -->
+            <aside class="timeline-sidebar">
+                <div class="timeline-container">
+                    <h3>Activity Timeline</h3>
+                    <div class="timeline" id="timeline">
+                        <p class="empty-state">No activity yet</p>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <p>Vibe Logger v1.0.0 | Local Session Tracker</p>
+                <p class="footer-time" id="currentTime"></p>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

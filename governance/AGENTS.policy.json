@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Purple Squirrel tiered execution authority (VibeCode Constitution, Operational Guardrail 1)",
+  "version": "2.0.0",
+  "description": "Evaluated at runtime by app/lib/policy.js against every agent command and write path. Patterns are case-insensitive JavaScript regular expressions. Tier 1 (autonomous) is everything not matched below. Tier 2 (conditional) forces a human-in-the-loop approval even in YOLO mode. Tier 3 (blocked) is refused outright while guardrails are enabled, on top of a built-in hard floor in code.",
+  "tiers": {
+    "blocked": {
+      "commands": [
+        "\\bformat(\\s|-volume)",
+        "\\brm\\s+(-rf?|--recursive)\\s+([a-z]:)?[\\\\/]\\s*$",
+        "remove-item\\s+.*-recurse.*\\s+([a-z]:)?[\\\\/]\\s*($|\\s)",
+        "\\bdel\\s+/s\\s+/q\\s+([a-z]:)?[\\\\/]",
+        "\\bshutdown\\b",
+        "\\brestart-computer\\b",
+        "\\breg\\s+delete\\b.*hklm",
+        "vssadmin\\s+delete",
+        "\\bcipher\\s+/w",
+        "\\bbcdedit\\b",
+        "\\bdiskpart\\b",
+        "git\\s+push\\s+.*--force",
+        "git\\s+push\\s+-f\\b",
+        "(type|cat|get-content)\\s+.*\\.env\\b",
+        "curl\\s+.*(-d|--data).*(secret|token|key)"
+      ],
+      "paths": [
+        "^\\.env($|\\.)",
+        "secrets?\\.vault$",
+        "^\\.well-known/"
+      ]
+    },
+    "conditional": {
+      "commands": [
+        "npm\\s+(install|i|add|uninstall|remove)\\b",
+        "pip\\s+(install|uninstall)\\b",
+        "cargo\\s+(add|remove)\\b",
+        "git\\s+push\\b",
+        "git\\s+reset\\s+--hard",
+        "invoke-webrequest|iwr\\s|curl\\s+.*-o\\s"
+      ],
+      "paths": [
+        "^\\.github/workflows/",
+        "^governance/",
+        "package-lock\\.json$",
+        "pnpm-lock\\.yaml$",
+        "cargo\\.lock$"
+      ]
+    }
+  }
+}

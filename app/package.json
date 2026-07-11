@@ -1,0 +1,13 @@
+{
+  "name": "purple-squirrel",
+  "version": "2.0.0",
+  "description": "Locally hosted, zero-cost, free-tier API rotating agentic coding dashboard and control panel",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/core.test.js"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}
