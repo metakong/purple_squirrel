@@ -260,6 +260,15 @@ test('sandbox: degrades gracefully when WSL is unavailable', async () => {
   assert.match(r.text, /wsl --install/);
 });
 
+test('sandbox: toWslPath translates Windows paths to the WSL /mnt mount', () => {
+  const sandbox = require('../lib/sandbox');
+  assert.strictEqual(sandbox.toWslPath('C:\\purple_squirrel'), '/mnt/c/purple_squirrel');
+  assert.strictEqual(sandbox.toWslPath('C:/purple_squirrel'), '/mnt/c/purple_squirrel');
+  assert.strictEqual(sandbox.toWslPath('D:\\Some Path\\proj'), '/mnt/d/Some Path/proj');
+  assert.strictEqual(sandbox.toWslPath(''), null);
+  assert.strictEqual(sandbox.toWslPath(null), null);
+});
+
 test('sandbox: formatResult mirrors the host executor shape', () => {
   const sandbox = require('../lib/sandbox');
   const ok = sandbox.formatResult(0, 'hello', '');

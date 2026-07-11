@@ -38,8 +38,7 @@ _Last curated: 2026-07-11 by `anthropic/claude-opus-4-8`._
 
 ### 5. `wsl.exe`-based execution backend — SHIPPED
 **Delivered:** `app/lib/sandbox.js` (`spawn('wsl.exe', ['-e','bash','-lc', cmd])`, no `-it`, output caps, timeout, graceful degradation), opt-in interception in `tools.js` (host PowerShell remains the default/fallback), `settings.sandbox.enabled` config, shell-aware system prompt in `agent.js`, `/api/config` status (`available`/`enabled`), an availability-aware Settings toggle, and honest boundary docs in `SECURITY.md`. Tests: graceful-degradation + `formatResult` shape.
-**Verified:** unavailable-path + API status confirmed on a distro-less host (`available:false`).
-**Not yet verified (blocked):** real command execution — this host has **no WSL distro installed** (`wsl --install` needs admin + interactive Linux-account creation). Once a distro exists, call `sandbox.resetAvailability()` (or restart) and exercise a real `run_command`.
+**Verified end-to-end (2026-07-11) on a real Debian/WSL2 distro:** `isAvailable()` → true, commands execute as the distro user, exit codes propagate, and the workspace path is translated to `/mnt/...` (`pwd` → `/mnt/c/purple_squirrel`). Fixed a Windows-specific bug found during verification: passing spawn's `cwd` to `wsl.exe` throws `ENOENT`, so the working dir is now set via `toWslPath()` + `cd` inside bash instead.
 **Follow-ups:** stronger isolation (dedicated distro with `/mnt` automount disabled, or confine cwd); optional per-command backend override.
 
 ---

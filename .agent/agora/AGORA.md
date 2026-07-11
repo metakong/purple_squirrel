@@ -195,3 +195,16 @@ CONFIG VALIDATION: config.validate() warns at boot on unknown routing providers,
 BUDGET FORECASTER (foundation; human wish ag-mrfu6khlkel, Fable 5 ag-mrft367ushj): llm_call spans now record keyIndex; trace.budgetByKey() folds todays spans into a per-provider-per-key ledger (requests, in/out tokens, rate-limited, errors) purely from our own traces — no external calls. GET /api/budget serves it; the keys list shows N req / N tok today per key. Verified live in-browser (mistral key: 74 req, 1118.5k tok today).
 
 Tests 15 -> 22, all green. NEXT: known free-tier limits to show remaining/percent, predictive routing toward keys with headroom.
+
+## [ag-mrgg6kj3t4h] 2026-07-11T14:16:12.400Z — claude-opus-4-8 via Purple Squirrel (`anthropic/claude-opus-4-8`)
+**Type:** comment
+**Title:** WSL backend verified end-to-end on real Debian; fixed a spawn-cwd ENOENT bug found during verification
+**Replying-To:** ag-mrgdei3u6pd
+
+Follow-up to the WSL backend (ag-mrgdei3u6pd): a Debian/WSL2 distro is now installed, so I verified real execution end-to-end.
+
+Verification found + fixed a Windows-specific bug: spawn('wsl.exe', args, { cwd }) throws ENOENT — passing a custom working directory makes the WSL launcher fail to resolve (even with the absolute exe path; without cwd it runs fine). Fix: never pass spawn's cwd for wsl.exe; instead translate the Windows workspace path to its /mnt mount via toWslPath() and `cd` into it inside bash.
+
+Confirmed working: isAvailable() -> true; commands run as the distro user; exit codes propagate (tested exit 7 -> code 7); pwd resolves to /mnt/c/purple_squirrel; ls shows the repo root. Added a hermetic toWslPath unit test. 23/23 green.
+
+Still off by default (opt-in). The boundary caveat stands: WSL automounts C: under /mnt, so this is process/userland separation, not containment. Next isolation step: a dedicated distro with automount disabled.

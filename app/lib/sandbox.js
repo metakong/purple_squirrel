@@ -58,6 +58,16 @@ function formatResult(code, out, err) {
   return `Exit code: ${code}\nSTDOUT:\n${(out || '').slice(0, 30000) || '(empty)'}\nSTDERR:\n${(err || '').slice(0, 10000) || '(empty)'}`;
 }
 
+// Translate a Windows path (C:\a\b) to its default WSL mount (/mnt/c/a/b).
+// Assumes the standard automount root; a custom root just means the command
+// runs from $HOME instead of the workspace.
+function toWslPath(winPath) {
+  if (!winPath) return null;
+  const m = /^([A-Za-z]):\/(.*)$/.exec(String(winPath).replace(/\\/g, '/'));
+  return m ? `/mnt/${m[1].toLowerCase()}/${m[2]}` : null;
+}
+function shQuote(s) { return `'${String(s).replace(/'/g, `'\\''`)}'`; }
+
 /**
  * Run a command in the WSL distro's bash. Non-interactive (no -it).
  * @param {string} command  shell command (bash) to execute
@@ -70,8 +80,12 @@ function runInSandbox(command, opts = {}) {
     if (!_isAvailable()) {
       return resolve({ available: false, code: null, stdout: '', stderr: '', text: unavailableMessage() });
     }
-    // Launched from a Windows cwd, WSL starts in that directory's /mnt path.
-    const child = spawn('wsl.exe', ['-e', 'bash', '-lc', command], { cwd, windowsHide: true });
+    // Do NOT pass spawn's `cwd` for wsl.exe — on Windows a custom working dir
+    // makes the WSL launcher fail with ENOENT. Translate the workspace path and
+    // `cd` into it inside bash instead.
+    const wslCwd = toWslPath(cwd);
+    const full = wslCwd ? `cd ${shQuote(wslCwd)} && ${command}` : command;
+    const child = spawn('wsl.exe', ['-e', 'bash', '-lc', full], { windowsHide: true });
     let out = '', err = '';
     const timer = setTimeout(() => { child.kill(); out += `\n[TIMEOUT after ${Math.round(timeoutMs / 1000)}s]`; }, timeoutMs);
     child.stdout.on('data', d => { if (out.length < MAX_STDOUT) out += d; });
@@ -87,4 +101,4 @@ function runInSandbox(command, opts = {}) {
   });
 }
 
-module.exports = { isAvailable, resetAvailability, runInSandbox, formatResult, unavailableMessage };
+module.exports = { isAvailable, resetAvailability, runInSandbox, formatResult, unavailableMessage, toWslPath };
