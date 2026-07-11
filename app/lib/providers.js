@@ -216,6 +216,9 @@ async function parseStreamingResponse(res, provider, onDelta, started, sessionId
       
       try {
         const chunk = JSON.parse(dataStr.replace(/,\s*,/g, ','));
+        // Usage often arrives in a terminal chunk with an empty choices array;
+        // capture it before the choice guard or streaming token counts are lost.
+        if (chunk.usage) usage = chunk.usage;
         const choice = chunk.choices && chunk.choices[0];
         if (!choice) continue;
         
@@ -230,15 +233,14 @@ async function parseStreamingResponse(res, provider, onDelta, started, sessionId
           for (const tcDelta of choice.delta.tool_calls) {
             const index = tcDelta.index || 0;
             
-            // Initialize tool call if this is the start
+            // Initialize empty — the accumulation below fills id/name/arguments.
+            // Seeding id/name here as well would double-count the first fragment
+            // (providers stream id+name in the opening tool_call delta), yielding
+            // names like "view_fileview_file" that match no tool.
             if (!toolCalls[index]) {
-              toolCalls[index] = {
-                id: tcDelta.id || '',
-                type: tcDelta.type || 'function',
-                function: { name: tcDelta.function?.name || '', arguments: '' }
-              };
+              toolCalls[index] = { id: '', type: tcDelta.type || 'function', function: { name: '', arguments: '' } };
             }
-            
+
             // Accumulate tool call data
             if (tcDelta.function?.name) {
               toolCalls[index].function.name += tcDelta.function.name;
@@ -250,11 +252,6 @@ async function parseStreamingResponse(res, provider, onDelta, started, sessionId
               toolCalls[index].id += tcDelta.id;
             }
           }
-        }
-        
-        // Handle usage (usually in final chunk)
-        if (chunk.usage) {
-          usage = chunk.usage;
         }
         
         // Handle finish reason
@@ -287,4 +284,4 @@ async function parseStreamingResponse(res, provider, onDelta, started, sessionId
   return { message, usage };
 }
 
-module.exports = { chatCompletion, estTokens, normalizeForProvider };
+module.exports = { chatCompletion, estTokens, normalizeForProvider, parseStreamingResponse };

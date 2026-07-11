@@ -164,6 +164,49 @@ test('providers: normalizeForProvider fixes Mistral tool-role and Gemini empty-n
   assert.strictEqual(history[1].tool_calls.length, 1, 'input array not mutated');
 });
 
+test('providers: parseStreamingResponse accumulates SSE text + tool-call fragments and forwards deltas', async () => {
+  const { parseStreamingResponse } = require('../lib/providers');
+  const enc = new TextEncoder();
+  // Each SSE frame delivered as its own read() — content split across frames,
+  // and a tool call whose name/arguments arrive in fragments (the shape free
+  // tiers actually stream). [DONE] terminates.
+  const frames = [
+    'data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"view_file","arguments":"12"}}]}}]}\n\n',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"34"}}]},"finish_reason":"tool_calls"}]}\n\n',
+    'data: {"usage":{"prompt_tokens":5,"completion_tokens":7}}\n\n',
+    'data: [DONE]\n\n'
+  ];
+  let i = 0;
+  const res = { body: { getReader: () => ({ read: async () => (i < frames.length ? { done: false, value: enc.encode(frames[i++]) } : { done: true }) }) } };
+  const deltas = [];
+  const { message, usage } = await parseStreamingResponse(res, 'test', d => deltas.push(d.text), Date.now(), 'sid');
+
+  assert.strictEqual(message.content, 'Hello', 'text deltas accumulated');
+  assert.deepStrictEqual(deltas, ['Hel', 'lo'], 'each text delta forwarded once');
+  assert.strictEqual(message.tool_calls.length, 1, 'single tool call assembled');
+  assert.strictEqual(message.tool_calls[0].function.name, 'view_file');
+  assert.strictEqual(message.tool_calls[0].function.arguments, '1234', 'argument fragments concatenated in order');
+  assert.strictEqual(message.tool_calls[0].id, 'c1');
+  assert.strictEqual(usage.completion_tokens, 7, 'usage captured from final chunk');
+});
+
+test('providers: parseStreamingResponse survives malformed chunks without throwing', async () => {
+  const { parseStreamingResponse } = require('../lib/providers');
+  const enc = new TextEncoder();
+  const frames = [
+    'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+    'data: {not valid json\n\n',           // provider anomaly — must be skipped
+    'data: {"choices":[{"delta":{"content":"!"}}]}\n\n',
+    'data: [DONE]\n\n'
+  ];
+  let i = 0;
+  const res = { body: { getReader: () => ({ read: async () => (i < frames.length ? { done: false, value: enc.encode(frames[i++]) } : { done: true }) }) } };
+  const { message } = await parseStreamingResponse(res, 'test', () => {}, Date.now(), 'sid');
+  assert.strictEqual(message.content, 'ok!', 'valid chunks still accumulate around a corrupt one');
+});
+
 test('config: custom providers merge without overriding built-ins', () => {
   const { getProviders } = require('../lib/config');
   const merged = getProviders({ customProviders: {

@@ -9,10 +9,11 @@ _Last curated: 2026-07-11 by `anthropic/claude-opus-4-8`._
 
 ## P0 — Correctness & reliability (do first)
 
-### 1. Automated coverage for the provider network + streaming path
-**Why:** All three recent production bugs — Mistral `tool`-role 400, Gemini empty-`name` 400, and the streaming double-render — lived in `app/lib/providers.js` / `app/lib/agent.js`, which have **zero automated coverage** because they do real `fetch`. This is the single highest-leverage gap.
-**Approach:** Inject a fetch shim (e.g. `chatCompletion({ ..., _fetch })` defaulting to global `fetch`, or `globalThis.fetch` swap in the test). Add tests for: 429/402/503 cooldown + key rotation, primary→fallback degradation, `streamed:true/false` contract, and `parseStreamingResponse` accumulating text + tool-call fragments from a fake SSE `ReadableStream`. Zero deps — use `node:test` + a hand-rolled `Response`-like object.
-**Effort:** M. **Files:** `app/lib/providers.js`, `app/tests/core.test.js`.
+### 1. Automated coverage for the provider network path  _(partially done)_
+**Why:** Recent production bugs all lived in `app/lib/providers.js` / `app/lib/agent.js`, which had **zero automated coverage** because they do real `fetch`.
+**Done 2026-07-11:** `parseStreamingResponse` is now exported and covered — writing the tests immediately surfaced and fixed two live bugs (tool-call name/id doubling → `"view_fileview_file"`; usage dropped from terminal `choices:[]` chunks).
+**Remaining:** Inject a fetch shim (`chatCompletion({ ..., _fetch })` defaulting to global `fetch`) — note this also needs `getKeys` decoupled/injected since `chatCompletion` reads the vault via `config.getKeys`. Then cover: 429/402/503 cooldown + key rotation, primary→fallback degradation, and the `streamed:true/false` contract end-to-end. Also consider requesting `stream_options:{include_usage:true}` for streaming providers so usage actually flows (gate per-provider — some strict endpoints 400 on unknown fields).
+**Effort:** M. **Files:** `app/lib/providers.js`, `app/lib/config.js`, `app/tests/core.test.js`.
 
 ### 2. Startup configuration validation
 **Why:** `data/config.json` is user-editable. A bad `routing.provider`, out-of-range `port`, or malformed `customProviders` currently fails late and obscurely.
@@ -67,5 +68,8 @@ Editor pane with syntax highlighting, file tabs, apply-diff-in-place, inline pro
 ### Recently shipped (context for the next agent)
 - Mistral `tool`-role & Gemini empty-`name` 400s fixed at the provider send boundary (`normalizeForProvider`).
 - Streaming double-render fixed (`chatCompletion` returns `streamed`; client resets the streaming bubble per iteration).
+- **Streaming tool-call name/id doubling fixed** — had broken tool calling on every streaming provider (`"view_fileview_file"` → unknown tool).
+- **Streaming usage capture fixed** — token counts in terminal `choices:[]` chunks are no longer dropped.
+- `parseStreamingResponse` exported + unit-tested (text accumulation, tool-call fragment assembly, malformed-chunk resilience).
 - Low-RAM startup warning (`os.freemem() < 2 GB`).
 - `.gitignore` hardened (cert/key/credential patterns) for the now-public repo.
