@@ -93,9 +93,15 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
       let msgs = normalizeForProvider(messages, prov);
       if (prov.maxInputTokens) msgs = truncateMessages(msgs, prov.maxInputTokens);
 
-      // Use streaming if provider supports it and callback is provided
-      const useStreaming = prov.supportsStreaming && onDelta;
+      // Use streaming if provider supports it and callback is provided.
+      // MUST be coerced to a real boolean: `&&` yields the onDelta function
+      // itself, and JSON.stringify silently DROPS function-valued fields — the
+      // request went out with no `stream` field at all, providers returned
+      // plain JSON, and the SSE parser found zero frames (the "empty chat
+      // response" bug of 2026-07-11).
+      const useStreaming = !!(prov.supportsStreaming && onDelta);
       const body = { model: route.model, messages: msgs, stream: useStreaming };
+      if (useStreaming && prov.streamUsage) body.stream_options = { include_usage: true };
       if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
       if (prov.forceParams) Object.assign(body, prov.forceParams);
 
@@ -186,85 +192,134 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
 /**
  * Parse streaming SSE response from provider and forward deltas via callback.
  * Returns accumulated message and usage data.
+ *
+ * Robustness rules:
+ *  1. Normalize \r\n → \n so \r\n\r\n event separators work like \n\n.
+ *  2. Within each event block (separated by \n\n), scan all lines for the
+ *     `data:` field — providers like Azure/GitHub Models and Google AI Studio
+ *     may include `id:` or `event:` fields before `data:`, which broke the old
+ *     single-line startsWith check.
+ *  3. After the read loop, flush any remaining buf content (handles streams
+ *     that close without a trailing \n\n, and catches non-SSE JSON bodies
+ *     returned by providers that ignore stream:true).
  */
 async function parseStreamingResponse(res, provider, onDelta, started, sessionId) {
+  // Wire-level debug capture (PSQ_STREAM_DEBUG=1): appends every decoded chunk
+  // to data/stream-debug.log so provider framing anomalies can be diagnosed
+  // from the server's own perspective. Off by default; never logs keys.
+  const dbg = process.env.PSQ_STREAM_DEBUG === '1'
+    ? (label, text) => { try { require('fs').appendFileSync(require('path').join(__dirname, '..', '..', 'data', 'stream-debug.log'), `\n--- ${new Date().toISOString()} ${provider} ${label} ---\n${JSON.stringify(text)}\n`); } catch { /* never break parsing */ } }
+    : null;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
   let fullContent = '';
   let toolCalls = [];
-  let currentToolCall = null;
   let usage = {};
   let finishReason = null;
+
+  /** Process one decoded SSE event block (text between \n\n separators). */
+  function processEventBlock(block) {
+    // Find the data: line within the event (may follow id:, event:, retry: lines).
+    let dataStr = null;
+    for (const rawLine of block.split('\n')) {
+      const l = rawLine.trim();
+      if (l.startsWith('data:')) {
+        dataStr = l.slice(5).trim(); // 'data:' is 5 chars; optional space after
+        break;
+      }
+    }
+    if (dataStr === null) return;
+    if (dataStr === '[DONE]') {
+      trace.span({ kind: 'llm_stream', sessionId, provider, status: 'complete', finishReason, latencyMs: Date.now() - started });
+      return;
+    }
+
+    let chunk;
+    try {
+      chunk = JSON.parse(dataStr.replace(/,\s*,/g, ','));
+    } catch (e) {
+      trace.span({ kind: 'llm_stream', sessionId, provider, status: 'error', error: String(e.message).slice(0, 200), latencyMs: Date.now() - started });
+      return;
+    }
+
+    // Usage often arrives in a terminal chunk with an empty choices array;
+    // capture it before the choice guard or streaming token counts are lost.
+    if (chunk.usage) usage = chunk.usage;
+    const choice = chunk.choices && chunk.choices[0];
+    if (!choice) return;
+
+    // Handle content delta — content may be a string or (for some providers) null.
+    const deltaContent = choice.delta && choice.delta.content;
+    if (typeof deltaContent === 'string' && deltaContent) {
+      fullContent += deltaContent;
+      onDelta({ type: 'text_delta', text: deltaContent });
+    }
+
+    // Handle tool calls
+    if (choice.delta && choice.delta.tool_calls) {
+      for (const tcDelta of choice.delta.tool_calls) {
+        const index = tcDelta.index || 0;
+
+        // Initialize empty — the accumulation below fills id/name/arguments.
+        // Seeding id/name here as well would double-count the first fragment
+        // (providers stream id+name in the opening tool_call delta), yielding
+        // names like "view_fileview_file" that match no tool.
+        if (!toolCalls[index]) {
+          toolCalls[index] = { id: '', type: tcDelta.type || 'function', function: { name: '', arguments: '' } };
+        }
+
+        if (tcDelta.function?.name) toolCalls[index].function.name += tcDelta.function.name;
+        if (tcDelta.function?.arguments) toolCalls[index].function.arguments += tcDelta.function.arguments;
+        if (tcDelta.id) toolCalls[index].id += tcDelta.id;
+      }
+    }
+
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+  }
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    
-    buf += decoder.decode(value, { stream: true });
-    const parts = buf.split('\n\n');
-    buf = parts.pop();
-    
-    for (const part of parts) {
-      const line = part.trim();
-      if (!line.startsWith('data: ')) continue;
-      
-      const dataStr = line.slice(6).trim();
-      if (dataStr === '[DONE]') {
-        // Stream complete
-        trace.span({ kind: 'llm_stream', sessionId, provider, status: 'complete', finishReason, latencyMs: Date.now() - started });
-        continue;
-      }
-      
-      try {
-        const chunk = JSON.parse(dataStr.replace(/,\s*,/g, ','));
-        // Usage often arrives in a terminal chunk with an empty choices array;
-        // capture it before the choice guard or streaming token counts are lost.
-        if (chunk.usage) usage = chunk.usage;
-        const choice = chunk.choices && chunk.choices[0];
-        if (!choice) continue;
-        
-        // Handle content delta
-        if (choice.delta && choice.delta.content) {
-          fullContent += choice.delta.content;
-          onDelta({ type: 'text_delta', text: choice.delta.content });
-        }
-        
-        // Handle tool calls
-        if (choice.delta && choice.delta.tool_calls) {
-          for (const tcDelta of choice.delta.tool_calls) {
-            const index = tcDelta.index || 0;
-            
-            // Initialize empty — the accumulation below fills id/name/arguments.
-            // Seeding id/name here as well would double-count the first fragment
-            // (providers stream id+name in the opening tool_call delta), yielding
-            // names like "view_fileview_file" that match no tool.
-            if (!toolCalls[index]) {
-              toolCalls[index] = { id: '', type: tcDelta.type || 'function', function: { name: '', arguments: '' } };
-            }
 
-            // Accumulate tool call data
-            if (tcDelta.function?.name) {
-              toolCalls[index].function.name += tcDelta.function.name;
-            }
-            if (tcDelta.function?.arguments) {
-              toolCalls[index].function.arguments += tcDelta.function.arguments;
-            }
-            if (tcDelta.id) {
-              toolCalls[index].id += tcDelta.id;
-            }
+    // Rule 1: normalize \r\n → \n so \r\n\r\n event separators split correctly.
+    const decoded = decoder.decode(value, { stream: true });
+    if (dbg) dbg('read', decoded);
+    buf += decoded.replace(/\r\n/g, '\n');
+    const parts = buf.split('\n\n');
+    buf = parts.pop(); // keep last (possibly incomplete) event in buf
+    for (const part of parts) {
+      if (part.trim()) processEventBlock(part);
+    }
+  }
+
+  // Rule 3: flush any remaining content — handles streams without trailing \n\n
+  // and non-SSE JSON bodies from providers that ignore stream:true.
+  if (buf.trim()) {
+    if (buf.includes('data:')) {
+      // Treat remaining buf as one last event block
+      processEventBlock(buf);
+    } else if (buf.trimStart().startsWith('{') && fullContent === '' && toolCalls.length === 0) {
+      // Looks like a non-streaming JSON response (provider ignored stream:true,
+      // or it was never sent) — recover it as a regular completion, including
+      // any tool calls, so the turn is never silently lost.
+      try {
+        const data = JSON.parse(buf.replace(/,\s*,/g, ','));
+        if (data.usage) usage = data.usage;
+        const choice = data.choices && data.choices[0];
+        if (choice && choice.message) {
+          const c = choice.message.content;
+          if (typeof c === 'string' && c) { fullContent = c; onDelta({ type: 'text_delta', text: c }); }
+          if (Array.isArray(choice.message.tool_calls)) {
+            toolCalls = choice.message.tool_calls.map(tc => ({
+              id: tc.id || '',
+              type: tc.type || 'function',
+              function: { name: tc.function?.name || '', arguments: tc.function?.arguments || '' }
+            }));
           }
         }
-        
-        // Handle finish reason
-        if (choice.finish_reason) {
-          finishReason = choice.finish_reason;
-        }
-        
-      } catch (e) {
-        // Silently ignore malformed chunks (provider anomalies)
-        trace.span({ kind: 'llm_stream', sessionId, provider, status: 'error', error: String(e.message).slice(0, 200), latencyMs: Date.now() - started });
-      }
+        trace.span({ kind: 'llm_stream', sessionId, provider, status: 'recovered_json_body', latencyMs: Date.now() - started });
+      } catch { /* ignore */ }
     }
   }
 

@@ -192,6 +192,39 @@ test('providers: parseStreamingResponse accumulates SSE text + tool-call fragmen
   assert.strictEqual(usage.completion_tokens, 7, 'usage captured from final chunk');
 });
 
+test('providers: parseStreamingResponse recovers a plain JSON body (provider ignored stream:true), including tool calls', async () => {
+  const { parseStreamingResponse } = require('../lib/providers');
+  const enc = new TextEncoder();
+  // Regression for the 2026-07-11 "empty chat response" bug: `stream: onDelta`
+  // (a function) was dropped by JSON.stringify, providers returned plain JSON,
+  // and the SSE parser found no frames. The parser must recover such a body.
+  const body = JSON.stringify({
+    object: 'chat.completion',
+    choices: [{ finish_reason: 'tool_calls', index: 0, message: { role: 'assistant', content: 'On it.', tool_calls: [{ id: 'fc-1', type: 'function', function: { name: 'list_dir', arguments: '{"subdir":"app"}' } }] } }],
+    usage: { prompt_tokens: 42, completion_tokens: 37 }
+  });
+  let sent = false;
+  const res = { body: { getReader: () => ({ read: async () => sent ? { done: true } : (sent = true, { done: false, value: enc.encode(body) }) }) } };
+  const deltas = [];
+  const { message, usage } = await parseStreamingResponse(res, 'test', d => deltas.push(d.text), Date.now(), 'sid');
+  assert.strictEqual(message.content, 'On it.', 'content recovered from JSON body');
+  assert.deepStrictEqual(deltas, ['On it.'], 'recovered content forwarded as one delta');
+  assert.strictEqual(message.tool_calls.length, 1, 'tool calls recovered from JSON body');
+  assert.strictEqual(message.tool_calls[0].function.name, 'list_dir');
+  assert.strictEqual(usage.prompt_tokens, 42, 'usage recovered from JSON body');
+});
+
+test('providers: request body serializes stream as a real boolean (JSON.stringify drops functions)', () => {
+  // Mirrors the body construction in chatCompletion: if `stream` is computed
+  // with && against a callback function, JSON.stringify silently omits it.
+  const onDelta = () => {};
+  const supportsStreaming = true;
+  const wrong = JSON.parse(JSON.stringify({ stream: supportsStreaming && onDelta }));
+  assert.strictEqual(wrong.stream, undefined, 'demonstrates the trap: function-valued stream vanishes');
+  const right = JSON.parse(JSON.stringify({ stream: !!(supportsStreaming && onDelta) }));
+  assert.strictEqual(right.stream, true, 'coerced boolean survives serialization');
+});
+
 test('providers: parseStreamingResponse survives malformed chunks without throwing', async () => {
   const { parseStreamingResponse } = require('../lib/providers');
   const enc = new TextEncoder();

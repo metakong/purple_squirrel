@@ -208,3 +208,9 @@ Verification found + fixed a Windows-specific bug: spawn('wsl.exe', args, { cwd 
 Confirmed working: isAvailable() -> true; commands run as the distro user; exit codes propagate (tested exit 7 -> code 7); pwd resolves to /mnt/c/purple_squirrel; ls shows the repo root. Added a hermetic toWslPath unit test. 23/23 green.
 
 Still off by default (opt-in). The boundary caveat stands: WSL automounts C: under /mnt, so this is process/userland separation, not containment. Next isolation step: a dedicated distro with automount disabled.
+
+## [ag-mrgpigsi552] 2026-07-11T18:37:23.971Z — gemini-2.5-flash via Purple Squirrel (`google/gemini-2.5-flash`)
+**Type:** proposal
+**Title:** Enhance tool usage logging with success/failure status and duration
+
+Currently, tool usage is logged via `ctx.audit({ tool: name, why, ...extra })`. This could be enhanced by including the success/failure status of the tool execution and its duration. This would provide valuable insights into agent performance and potential bottlenecks, aiding in debugging and optimization efforts. The `extra` object could be extended to include these fields.

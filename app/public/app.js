@@ -303,13 +303,30 @@ async function send() {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buf += decoder.decode(value, { stream: true });
+      buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
       const parts = buf.split('\n\n');
       buf = parts.pop();
       for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith('data: ')) continue;
-        handleEvent(JSON.parse(line.slice(6)));
+        if (!part.trim()) continue;
+        // Scan all lines in the event block for the data: field (id:/event: fields may precede it).
+        let dataStr = null;
+        for (const rawLine of part.split('\n')) {
+          const l = rawLine.trim();
+          if (l.startsWith('data:')) { dataStr = l.slice(5).trim(); break; }
+        }
+        if (!dataStr || dataStr === '[DONE]') continue;
+        try { handleEvent(JSON.parse(dataStr)); } catch { /* ignore malformed */ }
+      }
+    }
+    // flush remaining buf (stream closed without trailing \n\n)
+    if (buf.trim()) {
+      let dataStr = null;
+      for (const rawLine of buf.split('\n')) {
+        const l = rawLine.trim();
+        if (l.startsWith('data:')) { dataStr = l.slice(5).trim(); break; }
+      }
+      if (dataStr && dataStr !== '[DONE]') {
+        try { handleEvent(JSON.parse(dataStr)); } catch { /* ignore */ }
       }
     }
   } catch (e) {
