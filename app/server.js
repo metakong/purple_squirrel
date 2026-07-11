@@ -13,6 +13,7 @@ const keypool = require('./lib/keypool');
 const trace = require('./lib/trace');
 const vault = require('./lib/vault');
 const agora = require('./lib/agora');
+const sandbox = require('./lib/sandbox');
 const sessionStore = require('./lib/sessions');
 const { runAgent } = require('./lib/agent');
 const { walk } = require('./lib/walker');
@@ -61,6 +62,7 @@ function publicConfig() {
     };
   }
   c.vault = vault.vaultStatus();
+  c.sandbox = { available: sandbox.isAvailable(), enabled: !!(config.settings.sandbox && config.settings.sandbox.enabled) };
   return c;
 }
 

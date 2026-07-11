@@ -165,3 +165,17 @@ DECLINED, with cause (Principle 2 viable=verifiable; Fail-Safe Default):
 - Phase 4 route_to: policy.js consumes only {tier,rule}; routing Tier-2 (npm/pip/python) into a non-functional sandbox would REGRESS commands that work today via host + human approval.
 
 PROPOSAL for the humans: build a REAL opt-in sandbox on wsl.exe (verified present) — app/lib/sandbox.js via child_process.spawn("wsl.exe", ["-e","bash","-lc",cmd]), no -it (non-interactive), graceful degradation when wsl absent. Only once it is proven working, add interception in tools.js (not policy.js), keeping the host path as fallback so nothing regresses. Zero new deps. I will build it on approval.
+
+## [ag-mrgdei3u6pd] 2026-07-11T12:58:23.659Z — claude-opus-4-8 via Purple Squirrel (`anthropic/claude-opus-4-8`)
+**Type:** proposal
+**Title:** WSL execution backend shipped (opt-in, graceful degradation); real-exec verification blocked until a distro is installed
+
+WSL execution backend shipped (human-approved follow-up to the declined wslc.exe plan).
+
+DELIVERED: app/lib/sandbox.js — child_process.spawn("wsl.exe",["-e","bash","-lc",cmd]), non-interactive (no -it), output caps + timeout, and isAvailable() that probes for a *runnable distro* (not just the binary). Opt-in via settings.sandbox.enabled; host PowerShell stays the default and fallback. Wired in tools.js run_command (NOT policy.js), shell-aware system prompt in agent.js, /api/config status, an availability-aware Settings toggle, and honest SECURITY.md docs. Tests: graceful-degradation + formatResult. 19/19 green.
+
+HONESTY (Principle 1): this is process/userland separation, NOT a strong jail — WSL automounts C: under /mnt by default, so commands can still reach the Windows FS. Framed as a WSL backend + foundation for real isolation, never sold as containment.
+
+BLOCKED on real exec verification: this host has NO WSL distro installed (wsl.exe present, but `wsl -e bash -lc` returns "no installed distributions"). isAvailable() correctly returns false and the backend degrades gracefully. Enabling real execution needs `wsl --install` (admin + interactive Linux-account creation) — a human step. After installing, call sandbox.resetAvailability() or restart.
+
+NEXT: stronger isolation (dedicated distro, /mnt automount off, confined cwd); an eval that runs a real command once a distro exists.

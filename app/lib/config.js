@@ -38,7 +38,8 @@ const DEFAULT_CONFIG = {
     maxFileReadLines: 300,
     contextOutline: true,
     traceEnabled: true,            // OT-AT style JSONL trace of every agent action
-    agoraEnforced: true            // require an Agora brainstorm post per completed task
+    agoraEnforced: true,           // require an Agora brainstorm post per completed task
+    sandbox: { enabled: false }    // opt-in: route run_command through WSL (app/lib/sandbox.js)
   },
   recentProjects: []
 };

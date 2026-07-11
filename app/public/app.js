@@ -94,6 +94,12 @@ function fillSettingsDlg() {
   $('#setOutline').checked = s.contextOutline;
   $('#setTrace').checked = s.traceEnabled !== false;
   $('#setAgora').checked = s.agoraEnforced !== false;
+  $('#setSandbox').checked = !!(s.sandbox && s.sandbox.enabled);
+  const sb = CONFIG.sandbox || {};
+  $('#setSandbox').disabled = !sb.available;
+  $('#sandboxNote').textContent = sb.available
+    ? 'Route run_command through WSL (Linux bash) instead of host PowerShell'
+    : 'Unavailable — no runnable WSL distro found. Run `wsl --install`, then reopen Settings.';
   $('#setMaxIter').value = s.maxIterations;
   renderCustomProviders();
   $('#vaultNote').textContent = CONFIG.vault && CONFIG.vault.encrypted ? '(encrypted at rest with Windows DPAPI)' : '(vault will be created on first key)';
@@ -151,6 +157,7 @@ $('#saveSettingsBtn').onclick = async () => {
       contextOutline: $('#setOutline').checked,
       traceEnabled: $('#setTrace').checked,
       agoraEnforced: $('#setAgora').checked,
+      sandbox: { enabled: $('#setSandbox').checked },
       maxIterations: +$('#setMaxIter').value || 25
     },
     routing: {

@@ -36,12 +36,13 @@ _Last curated: 2026-07-11 by `anthropic/claude-opus-4-8`._
 
 ---
 
-## P2 — Real sandbox (blocked on human decision — see Agora `ag-mrgcg1j74zb`)
+## P2 — Real sandbox  _(DONE 2026-07-11, human-approved)_
 
-### 5. `wsl.exe`-based isolated execution
-**Why:** The original `wslc.exe` plan referenced a non-existent binary. `wsl.exe` **is** present and can provide real isolation for Tier-2 commands.
-**Approach:** `app/lib/sandbox.js` via `child_process.spawn('wsl.exe', ['-e','bash','-lc', cmd])` — **no `-it`** (non-interactive), capture stdout/stderr, graceful degradation when `wsl.exe` is absent. Wire opt-in interception in **`tools.js`** (not `policy.js`), keeping the host path as fallback so nothing regresses. Add a settings toggle + eval that asserts graceful degradation when the binary is missing.
-**Effort:** M. **Files:** `app/lib/sandbox.js` (new), `app/lib/tools.js`, `app/lib/config.js`, tests. **Do not start without human sign-off.**
+### 5. `wsl.exe`-based execution backend — SHIPPED
+**Delivered:** `app/lib/sandbox.js` (`spawn('wsl.exe', ['-e','bash','-lc', cmd])`, no `-it`, output caps, timeout, graceful degradation), opt-in interception in `tools.js` (host PowerShell remains the default/fallback), `settings.sandbox.enabled` config, shell-aware system prompt in `agent.js`, `/api/config` status (`available`/`enabled`), an availability-aware Settings toggle, and honest boundary docs in `SECURITY.md`. Tests: graceful-degradation + `formatResult` shape.
+**Verified:** unavailable-path + API status confirmed on a distro-less host (`available:false`).
+**Not yet verified (blocked):** real command execution — this host has **no WSL distro installed** (`wsl --install` needs admin + interactive Linux-account creation). Once a distro exists, call `sandbox.resetAvailability()` (or restart) and exercise a real `run_command`.
+**Follow-ups:** stronger isolation (dedicated distro with `/mnt` automount disabled, or confine cwd); optional per-command backend override.
 
 ---
 
@@ -72,4 +73,5 @@ Editor pane with syntax highlighting, file tabs, apply-diff-in-place, inline pro
 - **Streaming usage capture fixed** — token counts in terminal `choices:[]` chunks are no longer dropped.
 - `parseStreamingResponse` exported + unit-tested (text accumulation, tool-call fragment assembly, malformed-chunk resilience).
 - Low-RAM startup warning (`os.freemem() < 2 GB`).
+- Opt-in **WSL execution backend** (`app/lib/sandbox.js`) with graceful degradation, Settings toggle, and honest boundary docs — off by default; host PowerShell remains the fallback.
 - `.gitignore` hardened (cert/key/credential patterns) for the now-public repo.

@@ -10,9 +10,14 @@ const { projectOutline } = require('./walker');
 const trace = require('./trace');
 const heartbeat = require('./heartbeat');
 const agora = require('./agora');
+const sandbox = require('./sandbox');
 
 function buildSystemPrompt(root, config) {
-  let prompt = `You are VibeCode, an autonomous coding agent operating on the user's local project at "${root}" (Windows 11 ARM64, PowerShell shell).
+  const usingSandbox = !!(config.settings.sandbox && config.settings.sandbox.enabled) && sandbox.isAvailable();
+  const shell = usingSandbox
+    ? 'WSL (Linux bash) — run_command runs in a Linux shell, NOT PowerShell; use Unix commands and POSIX paths'
+    : 'PowerShell (Windows 11 ARM64)';
+  let prompt = `You are VibeCode, an autonomous coding agent operating on the user's local project at "${root}". The run_command shell is: ${shell}.
 Rules:
 - Use the provided tools to inspect and modify the project. Prefer replace_content for edits; use write_file only for new files or full rewrites.
 - Every tool call MUST include a short "why" argument stating your reasoning — it feeds the project's transparency trace.

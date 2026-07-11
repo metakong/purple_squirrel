@@ -207,6 +207,24 @@ test('providers: parseStreamingResponse survives malformed chunks without throwi
   assert.strictEqual(message.content, 'ok!', 'valid chunks still accumulate around a corrupt one');
 });
 
+test('sandbox: degrades gracefully when WSL is unavailable', async () => {
+  const sandbox = require('../lib/sandbox');
+  const r = await sandbox.runInSandbox('echo hi', { _isAvailable: () => false });
+  assert.strictEqual(r.available, false);
+  assert.strictEqual(r.code, null);
+  assert.match(r.text, /SANDBOX UNAVAILABLE/);
+  assert.match(r.text, /wsl --install/);
+});
+
+test('sandbox: formatResult mirrors the host executor shape', () => {
+  const sandbox = require('../lib/sandbox');
+  const ok = sandbox.formatResult(0, 'hello', '');
+  assert.match(ok, /^Exit code: 0/);
+  assert.match(ok, /STDOUT:\nhello/);
+  assert.match(ok, /STDERR:\n\(empty\)/);
+  assert.strictEqual(typeof sandbox.isAvailable(), 'boolean');
+});
+
 test('config: custom providers merge without overriding built-ins', () => {
   const { getProviders } = require('../lib/config');
   const merged = getProviders({ customProviders: {

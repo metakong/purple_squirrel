@@ -10,6 +10,7 @@ const { walk } = require('./walker');
 const { unifiedDiff } = require('./diff');
 const policy = require('./policy');
 const agora = require('./agora');
+const sandbox = require('./sandbox');
 
 function resolveInWorkspace(root, relPath) {
   const full = path.resolve(root, relPath);
@@ -139,11 +140,18 @@ async function executeTool(name, args, ctx) {
         rec({ target: cmd, blocked: true, status: 'blocked' });
         return `BLOCKED by governance policy (Tier 3, rule: ${verdict.rule}). Explain to the user what you wanted to do.`;
       }
+      // Opt-in WSL backend: route through the Linux sandbox when enabled AND a
+      // runnable distro exists; otherwise fall back to the host PowerShell.
+      const useSandbox = !!(settings.sandbox && settings.sandbox.enabled) && sandbox.isAvailable();
       if (verdict.tier === 'conditional' || !settings.yolo.autoRunCommands) {
-        const ok = await ctx.requestApproval('command', { command: cmd, tier: verdict.tier });
+        const ok = await ctx.requestApproval('command', { command: cmd, tier: verdict.tier, backend: useSandbox ? 'wsl' : 'host' });
         if (!ok) { rec({ target: cmd, status: 'rejected' }); return 'USER REJECTED this command. Do not retry it; ask the user for guidance.'; }
       }
-      rec({ target: cmd });
+      rec({ target: cmd, backend: useSandbox ? 'wsl' : 'host' });
+      if (useSandbox) {
+        const r = await sandbox.runInSandbox(cmd, { cwd: root });
+        return r.text;
+      }
       return await runPowershell(cmd, root);
     }
     case 'agora_read': {
