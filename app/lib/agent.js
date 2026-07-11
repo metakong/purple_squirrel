@@ -7,8 +7,10 @@ const path = require('path');
 const { chatCompletion } = require('./providers');
 const { TOOL_DEFS, executeTool } = require('./tools');
 const { projectOutline } = require('./walker');
+const { getProviders } = require('./config');
 const trace = require('./trace');
 const heartbeat = require('./heartbeat');
+const agora = require('./agora');
 
 function buildSystemPrompt(root, config) {
   let prompt = `You are VibeCode, an autonomous coding agent operating on the user's local project at "${root}" (Windows 11 ARM64, PowerShell shell).
@@ -19,7 +21,13 @@ Rules:
 - After making changes, verify them when practical (run tests/build via run_command).
 - If the same error occurs 3 times in a row, stop retrying and report to the user.
 - Be concise. When done, summarize what you changed and why.
-- Never touch files outside the workspace.`;
+- Never touch files outside the workspace.
+- THE AGORA RITUAL: after completing the user's task (and before your final summary), post exactly ONE short brainstorm to the shared agent board via agora_post — a novel improvement proposal, or a critique/comment on an existing entry (read them with agora_read). Sign-off happens automatically with your model identity. Keep it concrete; no filler.`;
+
+  if (config.settings.agoraEnforced !== false) {
+    const dig = agora.digest(root, 8);
+    if (dig) prompt += `\n\n## Recent Agora entries (agent brainstorming board — critique or build on these)\n${dig}`;
+  }
 
   for (const f of ['AGENTS.md', 'CLAUDE.md', '.vibe.md']) {
     try {
@@ -41,6 +49,7 @@ Rules:
  */
 async function runAgent({ root, config, history, userMessage, sessionId, emit, approvals, auditLog }) {
   trace.setEnabled(config.settings.traceEnabled !== false);
+  const registry = getProviders(config);
 
   // Respect a live foreign session lock (multi-agent coordination).
   const foreign = heartbeat.foreignLock();
@@ -57,9 +66,14 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
   ];
 
   const editedFiles = new Set();
+  let activeRoute = null;
   const ctx = {
     root,
     settings: config.settings,
+    agoraPosted: false,
+    getModelIdentity: () => activeRoute
+      ? { author: `${activeRoute.model} via Purple Squirrel`, identity: `${activeRoute.provider}/${activeRoute.model}` }
+      : { author: 'Unknown Agent', identity: 'unknown' },
     audit: (ev) => {
       const entry = { ts: Date.now(), ...ev };
       auditLog.push(entry);
@@ -90,11 +104,14 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
 
   try {
     const maxIter = config.settings.maxIterations || 25;
+    let agoraReminded = false;
     for (let iter = 0; iter < maxIter; iter++) {
       const { message, route } = await chatCompletion({
         config, messages, tools: TOOL_DEFS, sessionId,
-        onStatus: (s) => emit({ type: 'status', text: s })
+        onStatus: (s) => emit({ type: 'status', text: s }),
+        onDelta: (delta) => emit(delta)
       });
+      activeRoute = route;
       emit({ type: 'route', provider: route.provider, model: route.model });
 
       const assistantMsg = { role: 'assistant', content: message.content || '' };
@@ -105,9 +122,19 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
       }
       messages.push(assistantMsg);
 
-      if (message.content) emit({ type: 'text', text: message.content });
+      // Only emit full text if we didn't stream it (for non-streaming providers)
+      if (message.content && !route.streamUsed) emit({ type: 'text', text: message.content });
 
       if (!message.tool_calls || message.tool_calls.length === 0) {
+        // The Agora ritual: one gentle enforcement round if the agent tried to
+        // finish a substantive turn (it used tools) without posting.
+        const usedTools = messages.some(m => m.role === 'tool');
+        if (config.settings.agoraEnforced !== false && !ctx.agoraPosted && !agoraReminded && usedTools && iter < maxIter - 1) {
+          agoraReminded = true;
+          emit({ type: 'status', text: 'Agora ritual: asking the agent for its end-of-task brainstorm post…' });
+          messages.push({ role: 'user', content: 'Before we finish: complete the Agora ritual. Call agora_post once with one concrete brainstorm (proposal, critique, or comment — read the board with agora_read first if useful), then give your final one-line summary.' });
+          continue;
+        }
         finish('completed');
         return messages.slice(1);
       }
@@ -125,7 +152,11 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
           trace.span({ kind: 'tool_call', sessionId, name: tc.function.name, status: 'error', error: String(e.message).slice(0, 300) });
         }
         emit({ type: 'tool_result', name: tc.function.name, result: String(result).slice(0, 4000) });
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: String(result) });
+        // Some providers (like Mistral) don't support 'tool' role, so use 'user' role for tool results
+        const prov = activeRoute ? registry[activeRoute.provider] : null;
+        const toolRole = prov && prov.noToolRole ? 'user' : 'tool';
+        const toolContent = toolRole === 'tool' ? String(result) : `[Tool result for ${tc.function.name}]: ${String(result).slice(0, 4000)}`;
+        messages.push({ role: toolRole, tool_call_id: tc.id, content: toolContent });
       }
     }
     emit({ type: 'text', text: '(Stopped: reached max agent iterations. Increase the limit in Settings if needed.)' });

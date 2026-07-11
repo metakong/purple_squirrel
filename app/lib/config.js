@@ -8,14 +8,14 @@ const { CONFIG_PATH } = require('./paths');
 
 // Free-tier provider registry (endpoints + per-provider quirks).
 const PROVIDERS = {
-  openrouter: { label: 'OpenRouter (Free)', endpoint: 'https://openrouter.ai/api/v1/chat/completions', docs: 'https://openrouter.ai/keys' },
-  google:     { label: 'Google AI Studio',  endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', docs: 'https://aistudio.google.com/apikey' },
-  groq:       { label: 'Groq (Free)',       endpoint: 'https://api.groq.com/openai/v1/chat/completions', docs: 'https://console.groq.com/keys' },
-  cerebras:   { label: 'Cerebras (Free)',   endpoint: 'https://api.cerebras.ai/v1/chat/completions', docs: 'https://cloud.cerebras.ai' },
-  github:     { label: 'GitHub Models',     endpoint: 'https://models.github.ai/inference/chat/completions', docs: 'https://github.com/settings/tokens', maxInputTokens: 8000 },
-  mistral:    { label: 'Mistral (Experiment)', endpoint: 'https://api.mistral.ai/v1/chat/completions', docs: 'https://console.mistral.ai', consentRequired: true },
-  deepseek:   { label: 'DeepSeek Direct',   endpoint: 'https://api.deepseek.com/chat/completions', docs: 'https://platform.deepseek.com' },
-  kimi:       { label: 'Moonshot / Kimi',   endpoint: 'https://api.moonshot.ai/v1/chat/completions', docs: 'https://platform.moonshot.ai', forceParams: { temperature: 1.0, top_p: 0.95 } }
+  openrouter: { label: 'OpenRouter (Free)', endpoint: 'https://openrouter.ai/api/v1/chat/completions', docs: 'https://openrouter.ai/keys', supportsStreaming: true },
+  google:     { label: 'Google AI Studio',  endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', docs: 'https://aistudio.google.com/apikey', supportsStreaming: true },
+  groq:       { label: 'Groq (Free)',       endpoint: 'https://api.groq.com/openai/v1/chat/completions', docs: 'https://console.groq.com/keys', supportsStreaming: true },
+  cerebras:   { label: 'Cerebras (Free)',   endpoint: 'https://api.cerebras.ai/v1/chat/completions', docs: 'https://cloud.cerebras.ai', supportsStreaming: true },
+  github:     { label: 'GitHub Models',     endpoint: 'https://models.github.ai/inference/chat/completions', docs: 'https://github.com/settings/tokens', maxInputTokens: 8000, supportsStreaming: true },
+  mistral:    { label: 'Mistral (Experiment)', endpoint: 'https://api.mistral.ai/v1/chat/completions', docs: 'https://console.mistral.ai', consentRequired: true, supportsStreaming: true, noToolRole: true },
+  deepseek:   { label: 'DeepSeek Direct',   endpoint: 'https://api.deepseek.com/chat/completions', docs: 'https://platform.deepseek.com', supportsStreaming: true },
+  kimi:       { label: 'Moonshot / Kimi',   endpoint: 'https://api.moonshot.ai/v1/chat/completions', docs: 'https://platform.moonshot.ai', forceParams: { temperature: 1.0, top_p: 0.95 }, supportsStreaming: true }
 };
 
 const DEFAULT_CONFIG = {
@@ -24,6 +24,9 @@ const DEFAULT_CONFIG = {
     primary:  { provider: 'openrouter', model: 'qwen/qwen3-coder:free' },
     fallback: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
   },
+  // Declarative custom OpenAI-compatible providers (safe subset of a plugin
+  // system — no code loading): { id: { label, endpoint, maxInputTokens? } }
+  customProviders: {},
   settings: {
     yolo: {
       autoApproveEdits: true,      // Tier 1: write files without diff approval
@@ -34,10 +37,21 @@ const DEFAULT_CONFIG = {
     maxIterations: 25,
     maxFileReadLines: 300,
     contextOutline: true,
-    traceEnabled: true             // OT-AT style JSONL trace of every agent action
+    traceEnabled: true,            // OT-AT style JSONL trace of every agent action
+    agoraEnforced: true            // require an Agora brainstorm post per completed task
   },
   recentProjects: []
 };
+
+/** Merged provider registry: built-ins + user-declared custom endpoints. */
+function getProviders(cfg) {
+  const merged = { ...PROVIDERS };
+  for (const [id, p] of Object.entries((cfg && cfg.customProviders) || {})) {
+    if (!p || !p.endpoint || PROVIDERS[id]) continue;
+    merged[id] = { label: p.label || id, endpoint: p.endpoint, docs: p.docs || '', maxInputTokens: p.maxInputTokens, custom: true };
+  }
+  return merged;
+}
 
 let secretsCache = null; // { providers: { name: [{key, weight}] } }
 
@@ -102,4 +116,4 @@ function removeKey(provider, index) {
   return vault.saveSecrets(s);
 }
 
-module.exports = { load, save, PROVIDERS, DEFAULT_CONFIG, getKeys, addKey, removeKey, CONFIG_PATH };
+module.exports = { load, save, PROVIDERS, getProviders, DEFAULT_CONFIG, getKeys, addKey, removeKey, CONFIG_PATH };

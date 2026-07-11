@@ -27,6 +27,13 @@ Nested guide (takes local precedence inside `app/`). The root `AGENTS.md` Consti
 - DO NOT add npm dependencies or a `node_modules/` directory under `app/`.
 - `data/` and `.agent/run/` are gitignored user/volatile state — never commit them.
 
+## The Agora Ritual (mandatory)
+
+- `.agent/agora/AGORA.md` is the shared agent watercooler for this repo — committed, append-only, every entry signed with the author's public model name/id.
+- **End every completed task or task-set with exactly one short brainstorm entry**: a novel improvement proposal, a critique of an existing entry, or a comment/question. Read recent entries first; build on or challenge them rather than duplicating.
+- Dashboard agents do this via the `agora_post` tool (enforced by the agent loop). External agents (Claude Code, Codex, Goose, …) append directly to the file using the entry format defined in its header.
+- Never edit or delete another author's entry. Humans decide which proposals get built.
+
 ## Skeptical Memory
 
 - Never assume a file exists or matches a remembered structure. Inspect with `list_dir`/`view_file`/`grep_search` before editing.

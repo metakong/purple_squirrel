@@ -17,6 +17,7 @@ Permanent conceptual rules of Purple Squirrel. These cannot be bypassed by any t
 - **Workspace jail:** Every agent file operation resolves through `resolveInWorkspace()` and must stay inside the user-opened project directory. No tool may follow a path outside it.
 - **Append-only trace:** `data/traces/*.jsonl` is append-only. Never rewrite, truncate, or reorder trace files — the transparency guarantee depends on it.
 - **Policy supremacy:** `governance/AGENTS.policy.json` Tier 3 rules are enforced in code with a built-in hard floor that survives even deletion of the policy file.
+- **Agora integrity:** `.agent/agora/AGORA.md` is append-only and attributed. Entries are never edited or removed (rotation archives whole files); no agent may post under another identity. Improvement ideas flow through the Agora for critique — never as silently self-applied changes.
 
 ## Hardware Invariants (Samsung Galaxy Book Go 5G)
 

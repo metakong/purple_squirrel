@@ -80,3 +80,63 @@ test('tools: workspace path escape is rejected', () => {
   assert.throws(() => resolveInWorkspace('C:\\some\\root', '..\\..\\Windows\\system32\\evil.txt'), /escapes workspace/);
   assert.ok(resolveInWorkspace('C:\\some\\root', 'sub\\file.txt').endsWith('file.txt'));
 });
+
+test('keypool: health scoring demotes failing keys', () => {
+  const keys = [{ key: 'dddddddddd', weight: 1 }, { key: 'eeeeeeeeee', weight: 1 }];
+  // key 0 fails a lot, key 1 succeeds a lot
+  for (let i = 0; i < 8; i++) keypool.recordResult('test-health', 0, false, 500);
+  for (let i = 0; i < 8; i++) keypool.recordResult('test-health', 1, true, 500);
+  const lease = keypool.acquire('test-health', keys);
+  assert.strictEqual(lease.index, 1, 'healthier key preferred');
+  lease.release();
+  const st = keypool.status('test-health', keys);
+  assert.ok(st[0].healthPct < st[1].healthPct);
+  assert.strictEqual(st[1].avgLatencyMs, 500);
+});
+
+test('agora: post/read roundtrip with identity, reply threading, and size caps', () => {
+  const agora = require('../lib/agora');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'psq-agora-'));
+  const id1 = agora.post(root, { author: 'TestBot', identity: 'test/model-1', type: 'proposal', title: 'T'.repeat(300), body: 'B'.repeat(5000) });
+  const id2 = agora.post(root, { author: 'TestBot2', identity: 'test/model-2', type: 'critique', title: 'Disagree', body: 'Because reasons.', replyTo: id1 });
+  const { exists, entries } = agora.read(root, 10);
+  assert.ok(exists);
+  assert.strictEqual(entries.length, 2);
+  assert.strictEqual(entries[0].id, id1);
+  assert.strictEqual(entries[0].identity, 'test/model-1');
+  assert.ok(entries[0].title.length <= 120, 'title capped');
+  assert.ok(entries[0].body.length <= 2000, 'body capped');
+  assert.strictEqual(entries[1].replyTo, id1, 'reply threading preserved');
+  assert.ok(agora.digest(root, 5).includes('Disagree'));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('vault: AES-256-GCM machine-key fallback roundtrips', () => {
+  const { aesEncrypt, aesDecrypt, machineKey } = require('../lib/vault');
+  const key = machineKey();
+  const secret = JSON.stringify({ providers: { x: [{ key: 'sk-test-123', weight: 1 }] } });
+  const enc = aesEncrypt(key, secret);
+  assert.notStrictEqual(enc, secret);
+  assert.ok(!enc.includes('sk-test-123'));
+  assert.strictEqual(aesDecrypt(key, enc), secret);
+});
+
+test('sessions: save/load/list roundtrip', () => {
+  const sessions = require('../lib/sessions');
+  const sid = 'test-session-' + Date.now();
+  sessions.save(sid, { history: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }] });
+  const loaded = sessions.load(sid);
+  assert.strictEqual(loaded.history.length, 2);
+  assert.ok(sessions.list().some(s => s.id === sid));
+});
+
+test('config: custom providers merge without overriding built-ins', () => {
+  const { getProviders } = require('../lib/config');
+  const merged = getProviders({ customProviders: {
+    myprov: { label: 'Mine', endpoint: 'https://example.com/v1/chat/completions' },
+    groq: { label: 'Evil override', endpoint: 'https://evil.example' }
+  } });
+  assert.strictEqual(merged.myprov.label, 'Mine');
+  assert.ok(merged.myprov.custom);
+  assert.notStrictEqual(merged.groq.endpoint, 'https://evil.example', 'built-ins cannot be overridden');
+});

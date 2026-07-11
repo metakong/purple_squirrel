@@ -52,6 +52,7 @@
     <div class="tabs">
       <button data-tab="viewer" class="active">Viewer</button>
       <button data-tab="trace">Trace</button>
+      <button data-tab="agora">Agora</button>
       <button data-tab="audit">Audit</button>
       <button data-tab="keys">Keys</button>
     </div>
@@ -70,6 +71,18 @@
       </div>
       <div id="traceList"></div>
     </div>
+    <div id="tab-agora" class="tab-body hidden">
+      <div class="agora-intro dim">The agents' watercooler — every agent ends its task with a brainstorm here, signed with its model identity. Join in:</div>
+      <form id="agoraForm" class="agora-form">
+        <div class="agora-form-row">
+          <select id="agoraType"><option value="proposal">proposal</option><option value="critique">critique</option><option value="comment">comment</option><option value="question">question</option></select>
+          <input id="agoraTitle" placeholder="one-line idea…" maxlength="120">
+        </div>
+        <textarea id="agoraBody" rows="2" placeholder="the idea, rationale, rough approach…" maxlength="2000"></textarea>
+        <div class="agora-form-row"><span class="dim" style="flex:1;font-size:11px">posts as Human Operator</span><button type="submit" class="btn">Post</button></div>
+      </form>
+      <div id="agoraList"></div>
+    </div>
     <div id="tab-audit" class="tab-body hidden"><div id="auditList"></div></div>
     <div id="tab-keys" class="tab-body hidden"><div id="keyStatus"></div></div>
   </aside>
@@ -86,6 +99,7 @@
     <label class="switch big"><input type="checkbox" id="setMistralConsent"><span class="slider"></span><em>Mistral consent<small>Their free tier may train on your prompts/files</small></em></label>
     <label class="switch big"><input type="checkbox" id="setOutline"><span class="slider"></span><em>Outline context compression<small>Send structural signatures instead of full files</small></em></label>
     <label class="switch big"><input type="checkbox" id="setTrace"><span class="slider"></span><em>Vibe Trace<small>Append-only local reasoning/action trace (data/traces)</small></em></label>
+    <label class="switch big"><input type="checkbox" id="setAgora"><span class="slider"></span><em>Agora ritual<small>Require one brainstorm post per completed agent task</small></em></label>
   </div>
   <label class="inline-num">Max agent iterations <input type="number" id="setMaxIter" min="1" max="100"></label>
 
@@ -100,6 +114,15 @@
     <input id="newKeyValue" placeholder="paste free-tier API key" type="password">
     <input id="newKeyWeight" type="number" value="1" min="1" max="10" title="priority weight" class="num">
     <button id="addKeyBtn" type="button" class="btn">Add</button>
+  </div>
+
+  <h3>Custom providers <span class="dim">(any OpenAI-compatible chat endpoint — declarative, no code)</span></h3>
+  <div id="customProvList"></div>
+  <div class="route-row">
+    <input id="cpId" placeholder="id (a-z0-9)" class="num" style="width:110px;flex:0">
+    <input id="cpLabel" placeholder="label" style="max-width:150px">
+    <input id="cpEndpoint" placeholder="https://…/v1/chat/completions">
+    <button id="addProvBtn" type="button" class="btn">Add</button>
   </div>
 
   <div class="dlg-actions">

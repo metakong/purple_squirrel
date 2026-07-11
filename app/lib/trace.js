@@ -50,23 +50,33 @@ function query({ limit = 300, kind = null, sessionId = null } = {}) {
   return out.slice(-limit);
 }
 
-/** Aggregate token usage + counts for the HUD. */
+/** Aggregate token usage, latency, and reliability for the HUD + analytics. */
 function usageSummary() {
   const spans = query({ limit: 5000 });
-  const sum = { inputTokens: 0, outputTokens: 0, llmCalls: 0, toolCalls: 0, turns: 0, byModel: {} };
+  const sum = { inputTokens: 0, outputTokens: 0, llmCalls: 0, toolCalls: 0, turns: 0, errors: 0, byModel: {} };
   for (const s of spans) {
     if (s.kind === 'llm_call') {
       sum.llmCalls++;
       sum.inputTokens += s['gen_ai.usage.input_tokens'] || 0;
       sum.outputTokens += s['gen_ai.usage.output_tokens'] || 0;
       const m = s['gen_ai.request.model'] || 'unknown';
-      if (!sum.byModel[m]) sum.byModel[m] = { calls: 0, in: 0, out: 0 };
-      sum.byModel[m].calls++;
-      sum.byModel[m].in += s['gen_ai.usage.input_tokens'] || 0;
-      sum.byModel[m].out += s['gen_ai.usage.output_tokens'] || 0;
+      if (!sum.byModel[m]) sum.byModel[m] = { calls: 0, in: 0, out: 0, ok: 0, rateLimited: 0, errors: 0, latSum: 0 };
+      const bm = sum.byModel[m];
+      bm.calls++;
+      bm.in += s['gen_ai.usage.input_tokens'] || 0;
+      bm.out += s['gen_ai.usage.output_tokens'] || 0;
+      bm.latSum += s.latencyMs || 0;
+      if (s.status === 'ok') bm.ok++;
+      else if (s.status === 'rate_limited') bm.rateLimited++;
+      else { bm.errors++; sum.errors++; }
     }
-    if (s.kind === 'tool_call') sum.toolCalls++;
+    if (s.kind === 'tool_call') { sum.toolCalls++; if (s.status === 'error') sum.errors++; }
     if (s.kind === 'agent_turn' && s.phase === 'start') sum.turns++;
+  }
+  for (const bm of Object.values(sum.byModel)) {
+    bm.successPct = bm.calls ? Math.round((bm.ok / bm.calls) * 100) : 0;
+    bm.avgLatencyMs = bm.calls ? Math.round(bm.latSum / bm.calls) : 0;
+    delete bm.latSum;
   }
   return sum;
 }

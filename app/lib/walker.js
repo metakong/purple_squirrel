@@ -104,13 +104,24 @@ function outlineFile(fullPath, relPath) {
 
 const CODE_EXT = new Set(['.js', '.ts', '.tsx', '.jsx', '.mjs', '.cjs', '.rs', '.py', '.go', '.java', '.cs', '.rb', '.php', '.svelte', '.vue', '.c', '.cpp', '.h']);
 
+// Entry points and recently-touched files carry the most signal, so they get
+// outline budget first (lightweight take on semantic context prioritization).
+const ENTRY_RX = /(^|\/)(index|main|server|app|cli|lib)\.[a-z]+$/;
+
 function projectOutline(root, maxChars = 24000) {
   const entries = walk(root, { maxEntries: 5000 });
-  const parts = [];
-  let total = 0;
+  const candidates = [];
   for (const e of entries) {
     if (e.isDir || !CODE_EXT.has(path.extname(e.path))) continue;
-    const o = outlineFile(path.join(root, e.path), e.path);
+    let mtime = 0;
+    try { mtime = fs.statSync(path.join(root, e.path)).mtimeMs; } catch { /* skip stat */ }
+    candidates.push({ path: e.path, mtime, boost: ENTRY_RX.test(e.path) ? 1 : 0 });
+  }
+  candidates.sort((a, b) => (b.boost - a.boost) || (b.mtime - a.mtime));
+  const parts = [];
+  let total = 0;
+  for (const c of candidates) {
+    const o = outlineFile(path.join(root, c.path), c.path);
     if (o) {
       if (total + o.length > maxChars) break;
       parts.push(o); total += o.length;

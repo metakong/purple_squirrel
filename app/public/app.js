@@ -43,6 +43,7 @@ function switchTab(name) {
   if (name === 'keys') renderKeyStatus();
   if (name === 'audit') renderAudit();
   if (name === 'trace') renderTrace();
+  if (name === 'agora') renderAgora();
 }
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
 
@@ -92,7 +93,9 @@ function fillSettingsDlg() {
   $('#setMistralConsent').checked = s.yolo.mistralConsent;
   $('#setOutline').checked = s.contextOutline;
   $('#setTrace').checked = s.traceEnabled !== false;
+  $('#setAgora').checked = s.agoraEnforced !== false;
   $('#setMaxIter').value = s.maxIterations;
+  renderCustomProviders();
   $('#vaultNote').textContent = CONFIG.vault && CONFIG.vault.encrypted ? '(encrypted at rest with Windows DPAPI)' : '(vault will be created on first key)';
   const provs = Object.keys(CONFIG.providers);
   for (const sel of ['#routePrimaryProvider', '#routeFallbackProvider', '#newKeyProvider']) {
@@ -147,6 +150,7 @@ $('#saveSettingsBtn').onclick = async () => {
       },
       contextOutline: $('#setOutline').checked,
       traceEnabled: $('#setTrace').checked,
+      agoraEnforced: $('#setAgora').checked,
       maxIterations: +$('#setMaxIter').value || 25
     },
     routing: {
@@ -281,7 +285,15 @@ function handleEvent(ev) {
   switch (ev.type) {
     case 'status': addMsg('status', ev.text); break;
     case 'route': { const b = $('#routeBadge'); b.textContent = `${ev.provider}/${ev.model}`; b.classList.add('accent'); break; }
-    case 'text': showTyping(false); addMsg('assistant', ev.text); showTyping(true); break;
+    case 'text': showTyping(false); addMsg('assistant', ev.text); showTyping(true); window.currentAssistantMsg = null; break;
+    case 'text_delta': 
+      // Handle streaming text deltas
+      if (!window.currentAssistantMsg) {
+        window.currentAssistantMsg = addMsg('assistant', '');
+      }
+      window.currentAssistantMsg.innerHTML += esc(ev.text);
+      showTyping(true);
+      break;
     case 'tool_call': {
       const d = addMsg('tool', '');
       const why = ev.args && ev.args.why ? ` — ${ev.args.why}` : '';
@@ -294,7 +306,7 @@ function handleEvent(ev) {
     case 'audit': break;
     case 'approval_required': showApproval(ev); break;
     case 'error': showTyping(false); addMsg('error', ev.message); break;
-    case 'done': showTyping(false); addMsg('status', '— turn complete —'); break;
+    case 'done': showTyping(false); addMsg('status', '— turn complete —'); window.currentAssistantMsg = null; break;
   }
 }
 function esc(s) { const d = document.createElement('span'); d.textContent = s || ''; return d.innerHTML; }
@@ -332,6 +344,65 @@ function showApproval(ev) {
   }
   box.appendChild(actions);
 }
+
+/* ---------- agora ---------- */
+const TYPE_ICON = { proposal: '💡', critique: '⚔️', comment: '💬', question: '❓' };
+$('#agoraForm').onsubmit = async (e) => {
+  e.preventDefault();
+  if (!PROJECT_DIR) { toast('Open a project first.', 'err'); return; }
+  const title = $('#agoraTitle').value.trim(), body = $('#agoraBody').value.trim();
+  if (!title || !body) return;
+  try {
+    await api('/api/agora', { method: 'POST', body: JSON.stringify({ dir: PROJECT_DIR, type: $('#agoraType').value, title, body }) });
+    $('#agoraTitle').value = ''; $('#agoraBody').value = '';
+    toast('Posted to the Agora', 'ok');
+    renderAgora();
+  } catch (err) { toast(err.message, 'err'); }
+};
+async function renderAgora() {
+  const box = $('#agoraList');
+  if (!PROJECT_DIR) { box.innerHTML = '<em class="dim">Open a project to see its Agora board.</em>'; return; }
+  try {
+    const { exists, entries } = await api(`/api/agora?dir=${encodeURIComponent(PROJECT_DIR)}&limit=50`);
+    box.innerHTML = '';
+    if (!exists || !entries.length) { box.innerHTML = '<em class="dim">Board is empty — the first agent task will christen it.</em>'; return; }
+    for (const en of entries.slice().reverse()) {
+      const d = document.createElement('div');
+      d.className = 'agora-entry t-' + en.type;
+      d.innerHTML =
+        `<div class="ae-head">${TYPE_ICON[en.type] || '💬'} <b>${esc(en.title)}</b></div>` +
+        `<div class="ae-meta">${esc(en.author)} <span class="dim">(${esc(en.identity)})</span> · ${new Date(en.ts).toLocaleString()}${en.replyTo ? ` · re: <a href="#${esc(en.replyTo)}">${esc(en.replyTo)}</a>` : ''} · <span class="dim">${esc(en.id)}</span></div>` +
+        `<div class="ae-body">${esc(en.body)}</div>`;
+      d.id = en.id;
+      box.appendChild(d);
+    }
+  } catch (err) { box.innerHTML = `<em class="dim">${esc(err.message)}</em>`; }
+}
+
+/* ---------- custom providers ---------- */
+function renderCustomProviders() {
+  const box = $('#customProvList'); box.innerHTML = '';
+  const customs = Object.entries(CONFIG.providers).filter(([, p]) => p.custom);
+  for (const [id, p] of customs) {
+    const row = document.createElement('div');
+    row.className = 'key-item';
+    row.innerHTML = `<span><b>${esc(id)}</b> ${esc(p.label)}</span>`;
+    const del = document.createElement('button');
+    del.textContent = '✕'; del.className = 'mini-btn';
+    del.onclick = async () => { await api('/api/providers/custom', { method: 'POST', body: JSON.stringify({ remove: id }) }); await loadConfig(); fillSettingsDlg(); };
+    row.appendChild(del);
+    box.appendChild(row);
+  }
+  if (!customs.length) box.innerHTML = '<em class="dim" style="font-size:12px">None yet.</em>';
+}
+$('#addProvBtn').onclick = async () => {
+  try {
+    await api('/api/providers/custom', { method: 'POST', body: JSON.stringify({ id: $('#cpId').value.trim(), label: $('#cpLabel').value.trim(), endpoint: $('#cpEndpoint').value.trim() }) });
+    $('#cpId').value = ''; $('#cpLabel').value = ''; $('#cpEndpoint').value = '';
+    await loadConfig(); fillSettingsDlg();
+    toast('Custom provider added', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+};
 
 /* ---------- trace / audit / keys ---------- */
 $('#traceRefresh').onclick = () => renderTrace();
@@ -387,10 +458,25 @@ async function renderKeyStatus() {
     for (const k of p.keyStatus) {
       const d = document.createElement('div');
       d.className = 'key-row';
-      d.innerHTML = `<span>${esc(k.masked)} <span class="dim">w=${k.weight}</span></span><span class="${k.cooled ? 'key-cool' : 'key-ok'}">${k.cooled ? `cooldown ${k.resetInSec}s` : `ready (${k.active} in-flight)`}</span>`;
+      const health = k.calls ? ` · ♥${k.healthPct}%${k.avgLatencyMs != null ? ` · ${k.avgLatencyMs}ms` : ''}` : '';
+      d.innerHTML = `<span>${esc(k.masked)} <span class="dim">w=${k.weight}${health}</span></span><span class="${k.cooled ? 'key-cool' : 'key-ok'}">${k.cooled ? `cooldown ${k.resetInSec}s` : `ready (${k.active} in-flight)`}</span>`;
       box.appendChild(d);
     }
   }
+  // model reliability stats (from trace analytics)
+  try {
+    const u = await api('/api/usage');
+    const models = Object.entries(u.byModel || {});
+    if (models.length) {
+      const h = document.createElement('div'); h.className = 'prov-head'; h.textContent = 'Model stats (recent traces)'; box.appendChild(h);
+      for (const [m, s] of models) {
+        const d = document.createElement('div');
+        d.className = 'key-row';
+        d.innerHTML = `<span>${esc(m)}</span><span class="dim">${s.calls} calls · ${s.successPct}% ok · ${s.avgLatencyMs}ms · ${fmtK(s.in)}▸${fmtK(s.out)} tok</span>`;
+        box.appendChild(d);
+      }
+    }
+  } catch { /* ignore */ }
 }
 setInterval(() => { if (!$('#tab-keys').classList.contains('hidden')) renderKeyStatus(); }, 5000);
 

@@ -11,6 +11,8 @@ const configStore = require('./lib/config');
 const keypool = require('./lib/keypool');
 const trace = require('./lib/trace');
 const vault = require('./lib/vault');
+const agora = require('./lib/agora');
+const sessionStore = require('./lib/sessions');
 const { runAgent } = require('./lib/agent');
 const { walk } = require('./lib/walker');
 const { resolveInWorkspace } = require('./lib/tools');
@@ -46,12 +48,13 @@ function readBody(req) {
 function publicConfig() {
   const c = structuredClone(config);
   c.providers = {};
-  for (const [name, meta] of Object.entries(configStore.PROVIDERS)) {
+  for (const [name, meta] of Object.entries(configStore.getProviders(config))) {
     const keys = configStore.getKeys(name);
     c.providers[name] = {
       label: meta.label,
       docs: meta.docs,
       consentRequired: !!meta.consentRequired,
+      custom: !!meta.custom,
       keys: keys.map(k => ({ masked: k.key.slice(0, 6) + '…' + k.key.slice(-4), weight: k.weight || 1 })),
       keyStatus: keypool.status(name, keys)
     };
@@ -84,7 +87,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/keys' && req.method === 'POST') {
       const { provider, key, weight, remove } = await readBody(req);
-      if (!configStore.PROVIDERS[provider]) return json(res, 400, { error: 'Unknown provider' });
+      if (!configStore.getProviders(config)[provider]) return json(res, 400, { error: 'Unknown provider' });
       let encrypted;
       if (remove !== undefined) encrypted = configStore.removeKey(provider, remove);
       else if (key) encrypted = configStore.addKey(provider, key, weight || 1);
@@ -145,11 +148,42 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/usage' && req.method === 'GET') return json(res, 200, trace.usageSummary());
 
+    if (url.pathname === '/api/sessions' && req.method === 'GET') return json(res, 200, { sessions: sessionStore.list() });
+
+    if (url.pathname === '/api/agora' && req.method === 'GET') {
+      const dir = url.searchParams.get('dir');
+      if (!dir || !fs.existsSync(dir)) return json(res, 400, { error: 'Bad dir' });
+      return json(res, 200, agora.read(dir, parseInt(url.searchParams.get('limit'), 10) || 50));
+    }
+
+    if (url.pathname === '/api/agora' && req.method === 'POST') {
+      const { dir, type, title, body, replyTo } = await readBody(req);
+      if (!dir || !fs.existsSync(dir)) return json(res, 400, { error: 'Open a project first.' });
+      const id = agora.post(dir, { author: 'Human Operator', identity: 'human', type, title, body, replyTo });
+      trace.span({ kind: 'system', name: 'agora_post', target: title, why: 'human posted to the board' });
+      return json(res, 200, { ok: true, id });
+    }
+
+    if (url.pathname === '/api/providers/custom' && req.method === 'POST') {
+      const { id, label, endpoint, maxInputTokens, remove } = await readBody(req);
+      if (remove) {
+        delete config.customProviders[remove];
+      } else {
+        if (!id || !/^[a-z0-9_-]{2,32}$/.test(id)) return json(res, 400, { error: 'Provider id must be 2-32 chars: a-z 0-9 _ -' });
+        if (configStore.PROVIDERS[id]) return json(res, 400, { error: 'That id is a built-in provider' });
+        if (!/^https:\/\//.test(endpoint || '')) return json(res, 400, { error: 'Endpoint must be an https:// chat-completions URL' });
+        config.customProviders[id] = { label: (label || id).slice(0, 60), endpoint, ...(maxInputTokens ? { maxInputTokens: +maxInputTokens } : {}) };
+      }
+      configStore.save(config);
+      return json(res, 200, { ok: true });
+    }
+
     if (url.pathname === '/api/chat' && req.method === 'POST') {
       const { sessionId, dir, message, reset } = await readBody(req);
       if (!dir || !fs.existsSync(dir)) return json(res, 400, { error: 'Open a project directory first.' });
       const sid = sessionId || 'default';
-      if (reset || !sessions.has(sid)) sessions.set(sid, { history: [] });
+      if (reset) sessions.set(sid, { history: [] });
+      else if (!sessions.has(sid)) sessions.set(sid, sessionStore.load(sid) || { history: [] });
       const session = sessions.get(sid);
 
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
@@ -159,6 +193,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const newHistory = await runAgent({ root: dir, config, history: session.history, userMessage: message, sessionId: sid, emit, approvals, auditLog });
         session.history = newHistory.slice(-30);
+        sessionStore.save(sid, session);
       } catch (e) {
         emit({ type: 'error', message: e.message });
         emit({ type: 'done' });

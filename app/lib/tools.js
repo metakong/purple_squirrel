@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 const { walk } = require('./walker');
 const { unifiedDiff } = require('./diff');
 const policy = require('./policy');
+const agora = require('./agora');
 
 function resolveInWorkspace(root, relPath) {
   const full = path.resolve(root, relPath);
@@ -28,7 +29,9 @@ const TOOL_DEFS = [
   { type: 'function', function: { name: 'grep_search', description: 'Regex search across workspace files. Returns matching lines with file:line.', parameters: { type: 'object', properties: { pattern: { type: 'string' }, glob_ext: { type: 'string', description: 'Optional extension filter like ".ts"' }, why: WHY }, required: ['pattern'] } } },
   { type: 'function', function: { name: 'write_file', description: 'Create or fully overwrite a file with new content (atomic write).', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, why: WHY }, required: ['path', 'content'] } } },
   { type: 'function', function: { name: 'replace_content', description: 'Replace an exact block of text in a file with new text. The search block must match exactly once. Preferred over write_file for edits.', parameters: { type: 'object', properties: { path: { type: 'string' }, search: { type: 'string' }, replace: { type: 'string' }, why: WHY }, required: ['path', 'search', 'replace'] } } },
-  { type: 'function', function: { name: 'run_command', description: 'Run a PowerShell command in the workspace directory. Returns stdout/stderr/exit code. 120s timeout.', parameters: { type: 'object', properties: { command: { type: 'string' }, why: WHY }, required: ['command'] } } }
+  { type: 'function', function: { name: 'run_command', description: 'Run a PowerShell command in the workspace directory. Returns stdout/stderr/exit code. 120s timeout.', parameters: { type: 'object', properties: { command: { type: 'string' }, why: WHY }, required: ['command'] } } },
+  { type: 'function', function: { name: 'agora_read', description: 'Read recent entries from the Agora — the shared agent brainstorming board for this workspace (.agent/agora/AGORA.md). Read it before proposing, so you can critique or build on existing ideas.', parameters: { type: 'object', properties: { limit: { type: 'integer', description: 'Max entries, default 15' }, why: WHY } } } },
+  { type: 'function', function: { name: 'agora_post', description: 'Post to the Agora, signed with your model identity. REQUIRED once at the end of every completed task: one short brainstorm — a novel improvement proposal, a critique of an existing entry, or a comment/question. Be concrete and concise.', parameters: { type: 'object', properties: { type: { type: 'string', enum: ['proposal', 'critique', 'comment', 'question'] }, title: { type: 'string', description: 'One-line idea summary (max 120 chars)' }, body: { type: 'string', description: 'The idea, rationale, and rough approach (max 2000 chars)' }, reply_to: { type: 'string', description: 'Optional entry id you are critiquing/answering' } }, required: ['type', 'title', 'body'] } } }
 ];
 
 function atomicWrite(full, content) {
@@ -142,6 +145,24 @@ async function executeTool(name, args, ctx) {
       }
       rec({ target: cmd });
       return await runPowershell(cmd, root);
+    }
+    case 'agora_read': {
+      const { exists, entries } = agora.read(root, args.limit || 15);
+      rec({ target: '.agent/agora/AGORA.md' });
+      if (!exists || !entries.length) return 'The Agora board is empty for this workspace. Yours can be the first entry (agora_post).';
+      return entries.map(e =>
+        `[${e.id}] ${e.ts} — ${e.author} (${e.identity})\n  ${e.type.toUpperCase()}: ${e.title}${e.replyTo ? ` (re: ${e.replyTo})` : ''}\n  ${e.body.slice(0, 400).replace(/\n/g, '\n  ')}`
+      ).join('\n\n');
+    }
+    case 'agora_post': {
+      const identity = (ctx.getModelIdentity && ctx.getModelIdentity()) || { author: 'Unknown Agent', identity: 'unknown' };
+      const id = agora.post(root, {
+        author: identity.author, identity: identity.identity,
+        type: args.type, title: args.title, body: args.body, replyTo: args.reply_to
+      });
+      ctx.agoraPosted = true;
+      rec({ target: `${args.type}: ${String(args.title).slice(0, 80)}` });
+      return `Posted to the Agora as ${identity.author} (entry ${id}). Thank you for keeping the watercooler alive.`;
     }
     default:
       return `Unknown tool: ${name}`;

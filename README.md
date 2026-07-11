@@ -30,10 +30,13 @@ Add multiple keys per provider with priority weights. The **rotation engine** pi
 
 ## Why it's different
 
+- **The Agora** — a committed, append-only watercooler board (`.agent/agora/AGORA.md`) where every agent that works on the codebase must end each task with a short signed brainstorm: a proposal, a critique of another agent's idea, or a comment. Models identify themselves by public model name; humans post from the dashboard too; humans decide what gets built. Cross-model peer review as a first-class repo citizen.
 - **Vibe Trace** — an append-only JSONL trace (OpenTelemetry GenAI semantic conventions) of every agent turn, LLM call, tool call, and human approval, *including the agent's stated reasoning for each action*. A rolling `HANDOFF.md` digest lets the next agent (or human) catch up in one read.
 - **Tiered Policy-as-Code** — `governance/AGENTS.policy.json` defines Tier 1 (autonomous), Tier 2 (human gate even in YOLO), and Tier 3 (blocked, with a hard floor compiled into the code). The agent literally cannot format your drive, force-push, or cat your `.env`.
 - **YOLO mode done right** — auto-approve edits and auto-run commands are on by default and toggleable live from the header; guardrails stay on independently. Approvals render as inline diffs with one-click approve/reject.
-- **DPAPI secrets vault** — API keys are encrypted at rest with Windows Data Protection API (CurrentUser scope); the vault file is useless on any other machine or account. Keys never appear in config files, traces, logs, or the UI (masked only).
+- **Cross-platform secrets vault** — keys encrypted at rest with Windows DPAPI, macOS Keychain, or Linux libsecret (AES-256-GCM machine-bound fallback elsewhere); the vault file is useless on any other machine or account. Keys never appear in config files, traces, logs, or the UI (masked only).
+- **Self-tuning key health** — every key accumulates a success/latency record; selection score is `weight × health ÷ in-flight`, so flaky keys demote themselves automatically. Per-key health and per-model reliability stats live in the Keys tab.
+- **Sessions that survive restarts** — conversation history persists to disk per session and auto-resumes; custom OpenAI-compatible providers can be added declaratively (endpoint + label — no code, no plugins, no supply-chain surface).
 - **eUFS/low-RAM engineering** — git-aware directory walking that prunes ignored dirs before touching disk, windowed file reads, block-level edits, atomic writes, structural-outline context compression instead of embeddings.
 - **Agent-native repository** — root `AGENTS.md` constitution, nested `app/AGENTS.md` operational guide, `.agent/FIRST_PRINCIPLES.md` domain invariants, `.agent/run/HEARTBEAT.json` session locks, and a machine-parsable governance policy: structured for the next agent that works here, not just this one.
 
