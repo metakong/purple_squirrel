@@ -1,10 +1,35 @@
 # --- user data & secrets (never commit) ---
+# data/ holds secrets.vault (DPAPI-encrypted API keys), config.json,
+# session history, and trace JSONL files — none of this belongs in git.
 data/
 *.vault
 .env
 .env.*
+.env.local
+.env.*.local
+
+# --- private keys, certificates, and credential files ---
+*.pem
+*.key
+*.crt
+*.cert
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.secret
+credentials.json
+auth.json
+service-account*.json
+.netrc
+.npmrc
+.yarnrc
+.yarn/
 
 # --- volatile agent state (Sovereign Agent standard) ---
+# .agent/run/ holds HEARTBEAT.json and HANDOFF.md — ephemeral per-session files.
+# .agent/agora/ is intentionally committed (shared agent brainstorm board).
 .agent/run/
 
 # --- runtime noise ---
@@ -20,3 +45,5 @@ Desktop.ini
 .DS_Store
 .vs/
 .idea/
+*.suo
+*.user
