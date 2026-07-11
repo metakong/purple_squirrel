@@ -73,6 +73,9 @@ async function loadConfig() {
   const vb = $('#vaultBadge');
   vb.textContent = v.encrypted ? '🔒 vault' : (v.exists ? '⚠ vault plaintext' : '🔓 vault empty');
   vb.classList.toggle('good', !!v.encrypted);
+  // Boot identity tooltip: hover the vault badge to confirm the server process
+  // is fresh (a stale process silently runs pre-fix code after updates).
+  if (CONFIG.server) vb.title = `server pid ${CONFIG.server.pid} · up since ${new Date(CONFIG.server.startedAt).toLocaleString()} · node ${CONFIG.server.node}`;
   const dl = $('#recentDirs'); dl.innerHTML = '';
   for (const d of CONFIG.recentProjects) { const o = document.createElement('option'); o.value = d; dl.appendChild(o); }
   if (!PROJECT_DIR && CONFIG.recentProjects[0]) $('#projectDir').value = CONFIG.recentProjects[0];

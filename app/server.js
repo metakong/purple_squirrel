@@ -46,9 +46,15 @@ function readBody(req) {
   });
 }
 
+// Server boot identity: lets the UI (and diagnosers) detect a stale server
+// process still running pre-fix code — the failure mode behind the 2026-07-11
+// empty-chat incident, where fixed files sat on disk under a stale process.
+const BOOT = { startedAt: new Date().toISOString(), pid: process.pid, node: process.version };
+
 // Public view of config: provider registry + key status, never raw keys.
 function publicConfig() {
   const c = structuredClone(config);
+  c.server = { ...BOOT };
   c.providers = {};
   for (const [name, meta] of Object.entries(configStore.getProviders(config))) {
     const keys = configStore.getKeys(name);
@@ -239,7 +245,10 @@ const server = http.createServer(async (req, res) => {
     const full = path.join(PUBLIC_DIR, path.normalize(file));
     if (!full.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end(); }
     if (fs.existsSync(full) && fs.statSync(full).isFile()) {
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff' });
+      // no-cache: the UI is tiny and local; stale cached app.js after a code
+      // update silently masks fixes (root-caused during the 2026-07-11 empty
+      // chat incident). Revalidation costs ~nothing on loopback.
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-cache' });
       return fs.createReadStream(full).pipe(res);
     }
     res.writeHead(404); res.end('Not found');
