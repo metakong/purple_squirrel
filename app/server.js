@@ -114,6 +114,33 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { tree: walk(dir, { maxEntries: 3000 }) });
     }
 
+    // Directory browser for the folder picker. Read-only: returns subdirectory
+    // names only (never file contents). Loopback + Origin-checked above; this is
+    // the single local user browsing their own filesystem.
+    if (url.pathname === '/api/fs/list' && req.method === 'GET') {
+      const dir = url.searchParams.get('dir') || '';
+      try {
+        if (!dir) {
+          const drives = [];
+          for (let c = 67; c <= 90; c++) { // C..Z (skip A/B floppy letters)
+            const root = String.fromCharCode(c) + ':\\';
+            try { if (fs.statSync(root).isDirectory()) drives.push({ name: root, path: root }); } catch { /* no such drive */ }
+          }
+          return json(res, 200, { path: '', parent: null, dirs: drives });
+        }
+        const full = path.resolve(dir);
+        if (!fs.statSync(full).isDirectory()) return json(res, 400, { error: 'Not a directory' });
+        const dirs = fs.readdirSync(full, { withFileTypes: true })
+          .filter(e => { try { return e.isDirectory(); } catch { return false; } })
+          .filter(e => !e.name.startsWith('$'))
+          .slice(0, 1000)
+          .map(e => ({ name: e.name, path: path.join(full, e.name) }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        const parent = path.dirname(full);
+        return json(res, 200, { path: full, parent: parent === full ? '' : parent, dirs });
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+
     if (url.pathname === '/api/project/file' && req.method === 'GET') {
       const dir = url.searchParams.get('dir'), file = url.searchParams.get('file');
       const full = resolveInWorkspace(dir, file);

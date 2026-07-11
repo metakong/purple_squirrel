@@ -188,6 +188,32 @@ for (const [id, key] of [['#qYoloEdits', 'autoApproveEdits'], ['#qYoloCmds', 'au
 
 /* ---------- project & file tree ---------- */
 $('#openBtn').onclick = openProject;
+
+/* ---------- folder picker ---------- */
+let FS_CUR = ''; // current browse path ('' = drive list)
+async function fsBrowse(dir) {
+  try {
+    const data = await api(`/api/fs/list?dir=${encodeURIComponent(dir || '')}`);
+    FS_CUR = data.path || '';
+    $('#fsPath').textContent = FS_CUR || 'This PC — pick a drive';
+    $('#fsUpBtn').disabled = data.parent === null;
+    $('#fsUpBtn').dataset.parent = data.parent == null ? '' : data.parent;
+    $('#fsOpenBtn').disabled = !FS_CUR;
+    const list = $('#fsList'); list.innerHTML = '';
+    if (!data.dirs.length) { list.innerHTML = '<em class="dim">No subfolders here.</em>'; return; }
+    for (const d of data.dirs) {
+      const row = document.createElement('button');
+      row.type = 'button'; row.className = 'fs-item';
+      row.textContent = '📁 ' + d.name;
+      row.onclick = () => fsBrowse(d.path);
+      list.appendChild(row);
+    }
+  } catch (e) { toast(e.message, 'err'); }
+}
+$('#browseBtn').onclick = () => { fsBrowse($('#projectDir').value.trim() || ''); $('#fsDlg').showModal(); };
+$('#fsUpBtn').onclick = () => fsBrowse($('#fsUpBtn').dataset.parent || '');
+$('#fsCancelBtn').onclick = () => $('#fsDlg').close();
+$('#fsOpenBtn').onclick = () => { if (!FS_CUR) return; $('#projectDir').value = FS_CUR; $('#fsDlg').close(); openProject(); };
 $('#refreshTreeBtn').onclick = async () => { if (PROJECT_DIR) { const { tree } = await api(`/api/project/tree?dir=${encodeURIComponent(PROJECT_DIR)}`); TREE = tree; renderTree(); } };
 $('#treeFilter').oninput = () => renderTree();
 

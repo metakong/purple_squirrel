@@ -13,6 +13,7 @@
   <div class="project-bar">
     <input id="projectDir" placeholder="C:\path\to\your\project" list="recentDirs" spellcheck="false">
     <datalist id="recentDirs"></datalist>
+    <button id="browseBtn" class="btn" title="Browse for a folder">📁 Browse</button>
     <button id="openBtn" class="btn primary">Open</button>
   </div>
   <div class="hud">
@@ -129,6 +130,17 @@
   <div class="dlg-actions">
     <button id="saveSettingsBtn" class="btn primary">Save</button>
     <button id="closeSettingsBtn" type="button" class="btn ghost">Close</button>
+  </div>
+</dialog>
+
+<dialog id="fsDlg">
+  <h3>Choose a project folder</h3>
+  <div id="fsPath" class="dim" style="margin-bottom:8px;word-break:break-all"></div>
+  <div id="fsList" class="fs-list"></div>
+  <div class="dlg-actions">
+    <button id="fsUpBtn" type="button" class="btn ghost">↑ Up</button>
+    <button id="fsOpenBtn" class="btn primary">Open this folder</button>
+    <button id="fsCancelBtn" type="button" class="btn ghost">Cancel</button>
   </div>
 </dialog>
 

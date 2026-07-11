@@ -218,6 +218,9 @@ dialog h3 { margin: 18px 0 10px; font-size: 12px; text-transform: uppercase; let
 .route-row input { flex: 1; }
 .route-row .num { width: 64px; flex: 0; }
 .dlg-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
+.fs-list { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; background: var(--bg-2); }
+.fs-item { text-align: left; background: transparent; border: 0; padding: 7px 10px; border-radius: 6px; cursor: pointer; color: var(--text); font: 13px var(--sans); }
+.fs-item:hover { background: var(--panel-2); }
 .keys-provider { margin: 8px 0; }
 .keys-provider .key-item { display: flex; gap: 10px; align-items: center; font-family: var(--mono); font-size: 12px; padding: 3px 0; }
 .key-item button { padding: 0 8px; font-size: 11px; }

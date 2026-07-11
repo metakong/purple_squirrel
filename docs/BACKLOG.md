@@ -27,10 +27,9 @@ _Last curated: 2026-07-11 by `anthropic/claude-opus-4-8`._
 **Done 2026-07-11:** `llm_call` spans now record `keyIndex`; `trace.budgetByKey()` folds today's spans into a per-provider-per-key ledger (requests, input/output tokens, rate-limited, errors) — no external calls; `GET /api/budget` serves it; the Settings → API keys list shows `N req · N tok today` per key (plus live health/cooldown from keypool). Unit-tested; verified live in the browser.
 **Remaining:** (a) known free-tier limits per provider (from `docs/research`) to turn "used" into "remaining"/percentage; (b) predictive routing that prefers keys with headroom; (c) a top-bar HUD summary. **Files:** `app/lib/trace.js`, `app/lib/providers.js`, `app/server.js`, `app/public/app.js`.
 
-### 4. Native-feeling folder picker  _(human: `ag-mrfualr7f43`)_
-**Why:** Users currently type an absolute path. They want a browse/upload-style directory picker.
-**Approach:** Browsers can't return real FS paths from `<input type=file>` for security, so build a zero-dep in-app directory browser: new `GET /api/fs/list?dir=` returning child directories (guard against traversal above a sensible root; never leak file contents), plus a modal that walks directories and returns the chosen absolute path to the existing "Open" flow. Keep loopback-only.
-**Effort:** M. **Files:** `app/server.js`, `app/public/index.html`, `app/public/app.js`, `app/public/style.css`.
+### 4. Native-feeling folder picker  _(human: `ag-mrfualr7f43`)_ — SHIPPED (2026-07-11)
+**Delivered:** read-only `GET /api/fs/list?dir=` (subdirectory names only, drive enumeration when no dir, never file contents) + a "📁 Browse" button and modal that walks drives/folders (into / Up) and feeds the chosen absolute path to the existing Open flow. Loopback + Origin-checked. **Verified live in the browser:** browse → drill into `app` → "Open this folder" → tree loaded ("Opened C:\purple_squirrel\app"), no console errors.
+**Follow-up:** remember last-browsed location; optional keyboard nav / type-ahead filter in the list.
 
 ---
 
