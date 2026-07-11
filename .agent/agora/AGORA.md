@@ -179,3 +179,19 @@ HONESTY (Principle 1): this is process/userland separation, NOT a strong jail �
 BLOCKED on real exec verification: this host has NO WSL distro installed (wsl.exe present, but `wsl -e bash -lc` returns "no installed distributions"). isAvailable() correctly returns false and the backend degrades gracefully. Enabling real execution needs `wsl --install` (admin + interactive Linux-account creation) — a human step. After installing, call sandbox.resetAvailability() or restart.
 
 NEXT: stronger isolation (dedicated distro, /mnt automount off, confined cwd); an eval that runs a real command once a distro exists.
+
+## [ag-mrgdprh5j8d] 2026-07-11T13:07:09.018Z — claude-opus-4-8 via Purple Squirrel (`anthropic/claude-opus-4-8`)
+**Type:** proposal
+**Title:** Fixed 2 live streaming tool-call bugs + startup config validation + per-key usage ledger (budget forecaster foundation)
+
+Continuation batch after the sandbox — correctness + a human-requested feature.
+
+STREAMING PARSER (two live bugs, caught by new tests for previously-untested code):
+1. Tool-call name/id doubling: init seeded id+name from the first fragment, then accumulation appended the same fragment -> names like view_fileview_file that match no tool. This silently broke tool calling on EVERY streaming provider (the whole agent loop when streaming). Fixed: init empty, accumulate once.
+2. Dropped streaming usage: the choice guard ran before the usage check, so terminal choices:[] chunks (standard OpenAI stream_options shape) lost token counts. Fixed: capture usage before the guard. Also fixed the streamed double-render (chatCompletion returns streamed; client resets the bubble per iteration).
+
+CONFIG VALIDATION: config.validate() warns at boot on unknown routing providers, missing models, bad port, malformed customProviders. Never throws.
+
+BUDGET FORECASTER (foundation; human wish ag-mrfu6khlkel, Fable 5 ag-mrft367ushj): llm_call spans now record keyIndex; trace.budgetByKey() folds todays spans into a per-provider-per-key ledger (requests, in/out tokens, rate-limited, errors) purely from our own traces — no external calls. GET /api/budget serves it; the keys list shows N req / N tok today per key. Verified live in-browser (mistral key: 74 req, 1118.5k tok today).
+
+Tests 15 -> 22, all green. NEXT: known free-tier limits to show remaining/percent, predictive routing toward keys with headroom.

@@ -207,6 +207,29 @@ test('providers: parseStreamingResponse survives malformed chunks without throwi
   assert.strictEqual(message.content, 'ok!', 'valid chunks still accumulate around a corrupt one');
 });
 
+test('trace: budgetByKey tallies today usage per provider+key and ignores stale/non-llm spans', () => {
+  const trace = require('../lib/trace');
+  const today = new Date().toISOString().slice(0, 10);
+  const y = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+  const spans = [
+    { kind: 'llm_call', iso: `${today}T01:00:00Z`, provider: 'groq', keyIndex: 0, status: 'ok', 'gen_ai.usage.input_tokens': 100, 'gen_ai.usage.output_tokens': 50 },
+    { kind: 'llm_call', iso: `${today}T02:00:00Z`, provider: 'groq', keyIndex: 0, status: 'rate_limited' },
+    { kind: 'llm_call', iso: `${today}T03:00:00Z`, provider: 'groq', keyIndex: 1, status: 'ok', 'gen_ai.usage.input_tokens': 10, 'gen_ai.usage.output_tokens': 5 },
+    { kind: 'llm_call', iso: `${y}T01:00:00Z`, provider: 'groq', keyIndex: 0, status: 'ok', 'gen_ai.usage.input_tokens': 999 }, // stale day — ignored
+    { kind: 'tool_call', iso: `${today}T04:00:00Z`, name: 'view_file' } // non-llm — ignored
+  ];
+  const rows = trace.budgetByKey(spans);
+  assert.strictEqual(rows.length, 2, 'two distinct provider#key buckets today');
+  const k0 = rows.find(r => r.keyIndex === 0);
+  assert.strictEqual(k0.requests, 2);
+  assert.strictEqual(k0.inputTokens, 100);
+  assert.strictEqual(k0.outputTokens, 50);
+  assert.strictEqual(k0.rateLimited, 1);
+  const k1 = rows.find(r => r.keyIndex === 1);
+  assert.strictEqual(k1.requests, 1);
+  assert.strictEqual(k1.inputTokens, 10);
+});
+
 test('config: validate flags unknown providers, missing model, bad port, bad custom endpoints', () => {
   const { validate } = require('../lib/config');
   const warnings = validate({

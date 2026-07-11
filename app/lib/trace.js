@@ -82,6 +82,33 @@ function usageSummary() {
 }
 
 /**
+ * Per-provider, per-key usage ledger for *today*, derived purely from our own
+ * llm_call spans (no external calls). Feeds the free-tier budget view the human
+ * asked for. Pass a spans array to test in isolation; defaults to today+yesterday.
+ * Returns rows sorted by provider then key index.
+ */
+function budgetByKey(spans) {
+  const rows = spans || query({ limit: 5000 });
+  const today = new Date().toISOString().slice(0, 10);
+  const out = {};
+  for (const s of rows) {
+    if (s.kind !== 'llm_call') continue;
+    if (!s.iso || s.iso.slice(0, 10) !== today) continue;
+    const provider = s.provider || 'unknown';
+    const keyIndex = Number.isInteger(s.keyIndex) ? s.keyIndex : 0;
+    const k = `${provider}#${keyIndex}`;
+    if (!out[k]) out[k] = { provider, keyIndex, requests: 0, inputTokens: 0, outputTokens: 0, rateLimited: 0, errors: 0 };
+    const r = out[k];
+    r.requests++;
+    r.inputTokens += s['gen_ai.usage.input_tokens'] || 0;
+    r.outputTokens += s['gen_ai.usage.output_tokens'] || 0;
+    if (s.status === 'rate_limited') r.rateLimited++;
+    else if (s.status === 'error') r.errors++;
+  }
+  return Object.values(out).sort((a, b) => a.provider.localeCompare(b.provider) || a.keyIndex - b.keyIndex);
+}
+
+/**
  * Write the human/agent handoff digest (.agent/run/HANDOFF.md): a compact
  * markdown summary of the most recent actions and their reasoning, so any
  * newly arriving agent (or human) can catch up in one read.
@@ -125,4 +152,4 @@ function readHandoff() {
   try { return fs.readFileSync(HANDOFF_PATH, 'utf8'); } catch { return '# Session Handoff Digest\n\n_No sessions traced yet._'; }
 }
 
-module.exports = { span, query, usageSummary, writeHandoff, readHandoff, setEnabled };
+module.exports = { span, query, usageSummary, budgetByKey, writeHandoff, readHandoff, setEnabled };

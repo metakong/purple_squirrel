@@ -3,6 +3,7 @@ const $ = (s) => document.querySelector(s);
 let CONFIG = null;
 let PROJECT_DIR = null;
 let TREE = [];
+let BUDGET = []; // per-key usage today, from /api/budget
 const SESSION_ID = 'ui-' + Math.random().toString(36).slice(2);
 
 /* ---------- helpers ---------- */
@@ -85,7 +86,8 @@ async function refreshUsage() {
 }
 function fmtK(n) { return n > 9999 ? (n / 1000).toFixed(1) + 'k' : String(n || 0); }
 
-function fillSettingsDlg() {
+async function fillSettingsDlg() {
+  try { BUDGET = (await api('/api/budget')).keys || []; } catch { BUDGET = []; }
   const s = CONFIG.settings;
   $('#setAutoEdits').checked = s.yolo.autoApproveEdits;
   $('#setAutoCmds').checked = s.yolo.autoRunCommands;
@@ -124,7 +126,13 @@ function renderKeysEditor() {
     p.keys.forEach((k, i) => {
       const row = document.createElement('div');
       row.className = 'key-item';
-      row.innerHTML = `<span>${k.masked}</span><span class="dim">w=${k.weight}</span>`;
+      const st = (p.keyStatus && p.keyStatus[i]) || {};
+      const b = BUDGET.find(x => x.provider === name && x.keyIndex === i);
+      const reqs = b ? b.requests : 0;
+      const toks = b ? (b.inputTokens + b.outputTokens) : 0;
+      const health = st.calls ? ` · ♥${st.healthPct}%` : '';
+      const cool = st.cooled ? ` · cooldown ${st.resetInSec}s` : '';
+      row.innerHTML = `<span>${k.masked}</span><span class="dim">w=${k.weight} · ${reqs} req · ${fmtK(toks)} tok today${health}${cool}</span>`;
       const del = document.createElement('button');
       del.textContent = '✕'; del.className = 'mini-btn';
       del.onclick = async () => { await api('/api/keys', { method: 'POST', body: JSON.stringify({ provider: name, remove: i }) }); await loadConfig(); fillSettingsDlg(); toast('Key removed'); };
@@ -135,7 +143,7 @@ function renderKeysEditor() {
   }
   if (!box.children.length) box.innerHTML = '<em class="dim">No keys yet — add free-tier keys below. Get them free: OpenRouter, Google AI Studio, Groq, Cerebras…</em>';
 }
-$('#settingsBtn').onclick = () => { fillSettingsDlg(); $('#settingsDlg').showModal(); };
+$('#settingsBtn').onclick = async () => { await fillSettingsDlg(); $('#settingsDlg').showModal(); };
 $('#closeSettingsBtn').onclick = () => $('#settingsDlg').close();
 $('#addKeyBtn').onclick = async () => {
   const key = $('#newKeyValue').value.trim();

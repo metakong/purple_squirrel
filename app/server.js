@@ -151,6 +151,8 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/usage' && req.method === 'GET') return json(res, 200, trace.usageSummary());
 
+    if (url.pathname === '/api/budget' && req.method === 'GET') return json(res, 200, { keys: trace.budgetByKey() });
+
     if (url.pathname === '/api/sessions' && req.method === 'GET') return json(res, 200, { sessions: sessionStore.list() });
 
     if (url.pathname === '/api/agora' && req.method === 'GET') {

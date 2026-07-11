@@ -118,7 +118,7 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
           const wait = res.status === 402 ? 3600 : parseRetryAfter(res, text);
           keypool.cooldown(route.provider, lease.index, wait);
           keypool.recordResult(route.provider, lease.index, false, Date.now() - started);
-          trace.span({ kind: 'llm_call', sessionId, 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': route.model, provider: route.provider, status: 'rate_limited', http: res.status, cooldownSec: wait, latencyMs: Date.now() - started });
+          trace.span({ kind: 'llm_call', sessionId, 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': route.model, provider: route.provider, keyIndex: lease.index, status: 'rate_limited', http: res.status, cooldownSec: wait, latencyMs: Date.now() - started });
           onStatus && onStatus(`Key #${lease.index + 1} on ${route.provider} hit ${res.status}; cooldown ${wait}s, rotating…`);
           lastErr = new Error(`${route.provider} returned ${res.status}`);
           continue;
@@ -137,6 +137,7 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
             'gen_ai.operation.name': 'chat',
             'gen_ai.request.model': route.model,
             provider: route.provider,
+            keyIndex: lease.index,
             'gen_ai.usage.input_tokens': usage.prompt_tokens || 0,
             'gen_ai.usage.output_tokens': usage.completion_tokens || 0,
             toolCalls: (message.tool_calls || []).length,
@@ -156,6 +157,7 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
           'gen_ai.operation.name': 'chat',
           'gen_ai.request.model': route.model,
           provider: route.provider,
+          keyIndex: lease.index,
           'gen_ai.usage.input_tokens': usage.prompt_tokens || 0,
           'gen_ai.usage.output_tokens': usage.completion_tokens || 0,
           toolCalls: (choice.message.tool_calls || []).length,
@@ -169,7 +171,7 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
           continue;
         }
         keypool.recordResult(route.provider, lease.index, false, Date.now() - started);
-        trace.span({ kind: 'llm_call', sessionId, 'gen_ai.request.model': route.model, provider: route.provider, status: 'error', error: String(e.message).slice(0, 300), latencyMs: Date.now() - started });
+        trace.span({ kind: 'llm_call', sessionId, 'gen_ai.request.model': route.model, provider: route.provider, keyIndex: lease.index, status: 'error', error: String(e.message).slice(0, 300), latencyMs: Date.now() - started });
         lastErr = e;
         break; // terminal validation error: don't burn the whole pool
       } finally {

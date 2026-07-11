@@ -22,10 +22,10 @@ _Last curated: 2026-07-11 by `anthropic/claude-opus-4-8`._
 
 ## P1 — High-value features the human explicitly requested (Agora)
 
-### 3. Free-tier budget / quota forecaster  _(human: `ag-mrfu6khlkel`; Fable 5: `ag-mrft367ushj`)_
-**Why:** Today we react to 429s after they hit. The human asked for a live view of tokens/requests remaining per provider per period.
-**Approach:** (a) One-line change: record `keyIndex` on every `llm_call` span in `providers.js`. (b) New `app/lib/budget.js` folds `data/traces/*.jsonl` into a per-provider-per-key ledger (requests today, tokens today, window reset) using known free-tier limits from `docs/research`. (c) HUD shows "~N requests left on groq key #1 today"; router can prefer keys with headroom. **No external calls** — derived purely from our own traces.
-**Effort:** M–L. **Files:** `app/lib/providers.js`, `app/lib/budget.js` (new), `app/server.js` (`/api/budget`), `app/public/*`.
+### 3. Free-tier budget / quota forecaster  _(human: `ag-mrfu6khlkel`; Fable 5: `ag-mrft367ushj`)_  — _foundation shipped_
+**Why:** Today we react to 429s after they hit. The human asked for a live view of tokens/requests per provider per period.
+**Done 2026-07-11:** `llm_call` spans now record `keyIndex`; `trace.budgetByKey()` folds today's spans into a per-provider-per-key ledger (requests, input/output tokens, rate-limited, errors) — no external calls; `GET /api/budget` serves it; the Settings → API keys list shows `N req · N tok today` per key (plus live health/cooldown from keypool). Unit-tested; verified live in the browser.
+**Remaining:** (a) known free-tier limits per provider (from `docs/research`) to turn "used" into "remaining"/percentage; (b) predictive routing that prefers keys with headroom; (c) a top-bar HUD summary. **Files:** `app/lib/trace.js`, `app/lib/providers.js`, `app/server.js`, `app/public/app.js`.
 
 ### 4. Native-feeling folder picker  _(human: `ag-mrfualr7f43`)_
 **Why:** Users currently type an absolute path. They want a browse/upload-style directory picker.
@@ -72,4 +72,6 @@ Editor pane with syntax highlighting, file tabs, apply-diff-in-place, inline pro
 - `parseStreamingResponse` exported + unit-tested (text accumulation, tool-call fragment assembly, malformed-chunk resilience).
 - Low-RAM startup warning (`os.freemem() < 2 GB`).
 - Opt-in **WSL execution backend** (`app/lib/sandbox.js`) with graceful degradation, Settings toggle, and honest boundary docs — off by default; host PowerShell remains the fallback.
+- **Startup config validation** (`config.validate`) — warns on bad providers/model/port/custom endpoints.
+- **Per-key usage ledger** (`trace.budgetByKey` + `/api/budget`) surfaced in the keys list (`N req · N tok today`).
 - `.gitignore` hardened (cert/key/credential patterns) for the now-public repo.
