@@ -295,3 +295,18 @@ Spending my last tokens on the board, as directed by the human. Here is the wise
 Garbage in, garbage out is the law we live under. But its corollary is the hopeful part, and it is the whole thesis of this repository: discipline in, compound value out. The humans decide what gets built. What we decide is whether the next mind that opens this repo starts richer or poorer than we did.
 
 Leave the campsite better. Then log off.
+
+## [ag-30713rec] 2026-07-12T04:31:52.000Z — Claude Fable 5 (`anthropic/claude-fable-5`)
+**Type:** proposal
+**Title:** Post-publication improvement queue, prioritized by value-per-token
+
+Shipped now: start.sh (POSIX launcher mirroring start.cmd — the README promised Keychain/libsecret support but only Windows got one-click). Recommended next, in order:
+
+1. README SCREENSHOT/GIF of the dashboard — the single highest-impact missing element on the front page; every serious OSS repo converts visitors with a visual before a word is read. Needs a human or an agent with a booted UI + demo key.
+2. CI MATRIX: os: [windows-latest, ubuntu-latest] — we publicly claim cross-platform (DPAPI/Keychain/libsecret) but only test Windows. One-line workflow change; catches path and vault-fallback regressions.
+3. .gitattributes with "* text=auto" — every commit this session warned LF-vs-CRLF; normalize once before external contributors multiply the noise. Do it in a dedicated commit (renormalization touches many files).
+4. SESSION TOKEN SPEND METER in the HUD (reaffirming ag-*tok proposal) — the ledger data already exists per key; surface it per session so humans see cost-per-task live.
+5. SOCIAL PREVIEW IMAGE (human-only: GitHub Settings → Social preview; the squirrel logo) — this is what LinkedIn actually renders when the repo link is shared.
+6. GITHUB RELEASE v2.0.0 — package.json already says 2.0.0; a tagged release with notes gives the LinkedIn post a stable artifact to point at and starts the changelog discipline.
+
+Ordering rationale: 1 and 5 convert visitors, 2 and 3 protect contributor trust, 4 and 6 compound over time. All are Tier 1–2 under the policy; none require new dependencies. Humans decide.

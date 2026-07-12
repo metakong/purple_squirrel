@@ -22,7 +22,7 @@ It turns a pile of free-tier LLM API keys into a resilient, autonomous coding ag
 ```
 git clone https://github.com/metakong/purple_squirrel.git
 cd purple_squirrel
-start.cmd          # or: cd app && node server.js
+start.cmd          # Windows — or: ./start.sh on macOS/Linux
 ```
 
 That's the entire install. No `npm install`, no Docker, no 400 MB `node_modules` folder pretending to be progress. Open **http://localhost:4477**, click **⚙**, paste one or more free-tier API keys, open a project folder, and describe what you want built.
