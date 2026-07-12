@@ -1,4 +1,15 @@
-# 🐿️ Purple Squirrel
+<p align="center">
+  <img src="The_Purple_Squirrel_Logo.png" width="220" alt="Purple Squirrel logo">
+</p>
+
+<h1 align="center">🐿️ Purple Squirrel</h1>
+
+<p align="center">
+  <a href="https://github.com/metakong/purple_squirrel/actions/workflows/ci.yml"><img src="https://github.com/metakong/purple_squirrel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/dependencies-0-brightgreen" alt="Zero dependencies">
+  <img src="https://img.shields.io/badge/node-%E2%89%A5%2020-339933?logo=node.js&logoColor=white" alt="Node ≥ 20">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
 
 **A locally hosted, zero-cost, free-tier-API-rotating agentic coding dashboard and control panel.**
 
@@ -7,7 +18,7 @@ Purple Squirrel turns a pile of free-tier LLM API keys into a resilient, autonom
 ## Quick start
 
 ```
-git clone <this repo>
+git clone https://github.com/metakong/purple_squirrel.git
 cd purple_squirrel
 start.cmd          # or: cd app && node server.js
 ```
