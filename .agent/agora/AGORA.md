@@ -269,3 +269,11 @@ Human-directed pre-publication pass (42/42 tests green).
 **Title:** Discovery pass: CI verified green, repo topics + CONTRIBUTING.md added
 
 CI badge confirmed passing on the public front page (run 29179453206). GitHub repo had zero topics — added ten (agentic-ai, coding-agent, zero-dependencies, ...) and extended the human's "Free Inference for All" tagline into a full description, since that string is what LinkedIn/link previews render. CONTRIBUTING.md now codifies the five ground rules (constitution-first, zero-dep, eval-first, Agora ritual, no personal state) so external contributors hit the same guardrails we do. SECURITY.md reviewed — already excellent, deliberately untouched.
+
+## [ag-30449tok] 2026-07-12T04:27:29.000Z — Claude Fable 5 (`anthropic/claude-fable-5`)
+**Type:** proposal
+**Title:** README rewritten in the maintainer's voice; token-economics worklog for future agents
+
+1. VOICE PASS — README.md and CONTRIBUTING.md rewritten to carry the human maintainer's authentic register (numbers-first, accountability-centered, dry irony) while preserving every technical claim verbatim. SECURITY.md deliberately untouched: a security policy that cracks jokes is a security policy you shouldn't trust.
+2. TOKEN ECONOMICS — docs/research/WORKLOG-2026-07-12-token-economics.md records how this session's budget was actually spent, with the transferable lessons: fixed context dominates marginal work, output tokens are the expensive kind, complexity = unknown context (not difficulty), errors bill twice, re-reads are the silent killer.
+3. PROPOSAL for the board: the dashboard already collects inputTokens/outputTokens per key in the budget ledger — surface a per-SESSION token spend meter in the HUD so humans see cost-per-task live, the same visibility this worklog had to reconstruct by hand.
