@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chatCompletion } = require('./providers');
+const { resolveRouting } = require('./router');
 const { TOOL_DEFS, executeTool } = require('./tools');
 const { projectOutline } = require('./walker');
 const trace = require('./trace');
@@ -51,8 +52,26 @@ Rules:
 /**
  * Run one agent turn. `emit(event)` streams SSE events to the client.
  */
-async function runAgent({ root, config, history, userMessage, sessionId, emit, approvals, auditLog }) {
+async function runAgent({ root, config, history, userMessage, sessionId, emit, approvals, auditLog, routeOverride }) {
   trace.setEnabled(config.settings.traceEnabled !== false);
+
+  // Smart routing (Transparency Mandate: the decision and its "why" are both
+  // streamed to the UI and traced). Resolved once per user turn; the whole
+  // turn — including tool-call iterations — runs on the chosen route pair.
+  const routing = resolveRouting({ config, userMessage, history, routeOverride });
+  const effConfig = { ...config, routing: { ...config.routing, primary: routing.primary, fallback: routing.fallback } };
+  emit({
+    type: 'route_plan', mode: routing.meta.mode, difficulty: routing.meta.level, kind: routing.meta.kind,
+    provider: routing.primary && routing.primary.provider, model: routing.primary && routing.primary.model,
+    fallback: routing.fallback ? `${routing.fallback.provider}/${routing.fallback.model}` : null,
+    why: routing.meta.why
+  });
+  trace.span({
+    kind: 'router', sessionId, mode: routing.meta.mode, difficulty: routing.meta.level, taskKind: routing.meta.kind,
+    score: routing.meta.score, chosen: routing.primary ? `${routing.primary.provider}/${routing.primary.model}` : 'none',
+    fallback: routing.fallback ? `${routing.fallback.provider}/${routing.fallback.model}` : 'none',
+    why: routing.meta.why
+  });
 
   // Respect a live foreign session lock (multi-agent coordination).
   const foreign = heartbeat.foreignLock();
@@ -78,10 +97,14 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
       ? { author: `${activeRoute.model} via Purple Squirrel`, identity: `${activeRoute.provider}/${activeRoute.model}` }
       : { author: 'Unknown Agent', identity: 'unknown' },
     audit: (ev) => {
-      const entry = { ts: Date.now(), ...ev };
+      // durationMs: tools call audit() when their work completes, so elapsed
+      // time since the loop stamped _toolStart is the execution duration
+      // (Agora proposal ag-mrgpigsi552 — success/failure + duration insight).
+      const durationMs = ctx._toolStart ? Date.now() - ctx._toolStart : undefined;
+      const entry = { ts: Date.now(), ...(durationMs !== undefined ? { durationMs } : {}), ...ev };
       auditLog.push(entry);
       emit({ type: 'audit', entry });
-      trace.span({ kind: 'tool_call', sessionId, name: ev.tool, target: ev.target, why: ev.why, status: ev.status || 'ok', 'gen_ai.operation.name': 'execute_tool' });
+      trace.span({ kind: 'tool_call', sessionId, name: ev.tool, target: ev.target, why: ev.why, status: ev.status || 'ok', latencyMs: durationMs, 'gen_ai.operation.name': 'execute_tool' });
       if ((ev.tool === 'write_file' || ev.tool === 'replace_content') && !ev.status) {
         editedFiles.add(ev.target);
         heartbeat.write('working', { sessionId, project: root, locks: [...editedFiles] });
@@ -110,7 +133,7 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
     let agoraReminded = false;
     for (let iter = 0; iter < maxIter; iter++) {
       const { message, route, streamed } = await chatCompletion({
-        config, messages, tools: TOOL_DEFS, sessionId,
+        config: effConfig, messages, tools: TOOL_DEFS, sessionId,
         onStatus: (s) => emit({ type: 'status', text: s }),
         onDelta: (delta) => emit(delta)
       });
@@ -149,6 +172,7 @@ async function runAgent({ root, config, history, userMessage, sessionId, emit, a
         emit({ type: 'tool_call', name: tc.function.name, args });
         heartbeat.write('working', { sessionId, project: root, locks: [...editedFiles] });
         let result;
+        ctx._toolStart = Date.now();
         try {
           result = await executeTool(tc.function.name, args, ctx);
         } catch (e) {

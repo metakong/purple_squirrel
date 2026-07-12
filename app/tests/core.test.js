@@ -26,6 +26,14 @@ test('keypool: weighted acquire prefers higher weight, respects cooldown', () =>
   assert.ok(status[1].resetInSec > 0 && status[1].resetInSec <= 60);
 });
 
+test('keypool: remove() shifts state so the next key does not inherit records', () => {
+  const keys = [{ key: 'dddddddddd', weight: 1 }, { key: 'eeeeeeeeee', weight: 1 }];
+  keypool.cooldown('test-prov3', 0, 60); // key #0 cooling
+  keypool.remove('test-prov3', 0);       // delete key #0 from the vault
+  const status = keypool.status('test-prov3', keys.slice(1));
+  assert.ok(!status[0].cooled, 'surviving key must not inherit the removed key’s cooldown');
+});
+
 test('keypool: exhausted pool returns null', () => {
   const keys = [{ key: 'cccccccccc', weight: 1 }];
   keypool.cooldown('test-prov2', 0, 60);
@@ -320,4 +328,217 @@ test('config: custom providers merge without overriding built-ins', () => {
   assert.strictEqual(merged.myprov.label, 'Mine');
   assert.ok(merged.myprov.custom);
   assert.notStrictEqual(merged.groq.endpoint, 'https://evil.example', 'built-ins cannot be overridden');
+});
+
+/* ---------- smart model routing (catalog + router) ---------- */
+
+test('catalog: entries only reference registered providers, with non-empty model ids', () => {
+  const catalog = require('../lib/catalog');
+  const { PROVIDERS } = require('../lib/config');
+  for (const e of catalog.CATALOG) {
+    assert.ok(e.id && e.label && e.tier, `entry ${e.id} has id/label/tier`);
+    const provs = Object.keys(e.providers);
+    assert.ok(provs.length, `entry ${e.id} has at least one provider`);
+    for (const [prov, spec] of Object.entries(e.providers)) {
+      assert.ok(PROVIDERS[prov], `${e.id}: provider "${prov}" is a built-in`);
+      assert.ok(typeof spec.model === 'string' && spec.model.length > 1, `${e.id}/${prov}: model id present`);
+      if (spec.deprecated) assert.match(spec.deprecated, /^\d{4}-\d{2}-\d{2}$/);
+    }
+  }
+});
+
+test('catalog: ladders reference existing catalog entries only', () => {
+  const catalog = require('../lib/catalog');
+  for (const [key, ids] of Object.entries(catalog.LADDERS)) {
+    assert.ok(ids.length >= 3, `ladder ${key} has depth for failover`);
+    for (const id of ids) assert.ok(catalog.findEntry(id), `ladder ${key}: "${id}" exists in catalog`);
+  }
+});
+
+test('catalog: deprecation buffer excludes routes near provider shutdown', () => {
+  const catalog = require('../lib/catalog');
+  const jul11 = Date.parse('2026-07-11T12:00:00Z');
+  // Groq Llama 4 Scout dies 2026-07-17 -> inside the 7-day buffer on Jul 11.
+  assert.ok(catalog.isDeprecated('groq', 'meta-llama/llama-4-scout-17b-16e-instruct', jul11));
+  // Groq Llama 3.3 dies 2026-08-16 -> still usable on Jul 11.
+  assert.ok(!catalog.isDeprecated('groq', 'llama-3.3-70b-versatile', jul11));
+  // Same model via OpenRouter has no announced shutdown.
+  assert.ok(!catalog.isDeprecated('openrouter', 'meta-llama/llama-4-scout-17b-16e-instruct', jul11));
+});
+
+test('catalog: routeParams merges static params with difficulty tuning', () => {
+  const catalog = require('../lib/catalog');
+  const oss = catalog.findEntry('gpt-oss-120b');
+  assert.deepStrictEqual(catalog.routeParams(oss, 'groq', 'simple'), { reasoning_effort: 'low' });
+  assert.deepStrictEqual(catalog.routeParams(oss, 'cerebras', 'complex'), { reasoning_effort: 'high' });
+  const dsv4 = catalog.findEntry('deepseek-v4-pro');
+  assert.deepStrictEqual(catalog.routeParams(dsv4, 'deepseek', 'complex'), { reasoning: { enabled: true } });
+  assert.deepStrictEqual(catalog.routeParams(dsv4, 'deepseek', 'simple'), { reasoning: { enabled: false } });
+  assert.strictEqual(catalog.routeParams(dsv4, 'openrouter', 'complex'), null, 'no tune defined for that provider');
+});
+
+test('router: classifier separates simple, moderate, and complex prompts', () => {
+  const { classifyDifficulty } = require('../lib/router');
+  assert.strictEqual(classifyDifficulty('What is a mutex?').level, 'simple');
+  const mod = classifyDifficulty('Fix the failing unit test in app/tests/core.test.js so the build passes again.');
+  assert.strictEqual(mod.level, 'moderate');
+  assert.strictEqual(mod.kind, 'coding');
+  const cx = classifyDifficulty(
+    'Refactor the provider dispatch to implement a distributed rate-limit-aware architecture. ' +
+    'First analyze the concurrency model, then design a migration plan, then implement it end-to-end:\n' +
+    '1. audit keypool.js\n2. add per-provider queues\n3. optimize the cooldown algorithm\n4. write integration tests\n' +
+    'Debug any race condition you find and document the root cause.\n' + 'x'.repeat(800));
+  assert.strictEqual(cx.level, 'complex');
+  assert.strictEqual(cx.kind, 'coding');
+});
+
+// Injectable deps: only these providers have keys, nothing is cooling down,
+// no budget pressure unless a test injects it.
+function routerDeps(keyedProviders, now = Date.parse('2026-07-11T12:00:00Z'), pressure = {}) {
+  return {
+    getKeys: (p) => (keyedProviders.includes(p) ? [{ key: 'k'.repeat(10), weight: 1 }] : []),
+    poolStatus: (p, keys) => keys.map(() => ({ cooled: false })),
+    now: () => now,
+    pressure
+  };
+}
+const routerCfg = (mode) => ({
+  routing: { mode, primary: { provider: 'openrouter', model: 'z-ai/glm-5.2' }, fallback: { provider: 'groq', model: 'openai/gpt-oss-120b' } },
+  settings: { yolo: { mistralConsent: false } },
+  customProviders: {}
+});
+
+test('router: auto mode only routes to keyed providers and prefers cross-provider fallback', () => {
+  const { resolveRouting } = require('../lib/router');
+  const r = resolveRouting(
+    { config: routerCfg('auto'), userMessage: 'Refactor the whole architecture end-to-end, debug the race condition, then optimize and implement integration tests across modules.', history: [] },
+    routerDeps(['groq', 'cerebras'])
+  );
+  assert.strictEqual(r.meta.mode, 'auto');
+  assert.strictEqual(r.meta.level, 'complex');
+  assert.ok(['groq', 'cerebras'].includes(r.primary.provider), 'primary uses a keyed provider');
+  assert.ok(r.fallback && r.fallback.provider !== r.primary.provider, 'fallback crosses providers');
+});
+
+test('router: manual mode returns configured routes untouched by ladders', () => {
+  const { resolveRouting } = require('../lib/router');
+  const r = resolveRouting(
+    { config: routerCfg('manual'), userMessage: 'What is a mutex?', history: [] },
+    routerDeps(['google'])
+  );
+  assert.strictEqual(r.meta.mode, 'manual');
+  assert.strictEqual(r.primary.provider, 'openrouter');
+  assert.strictEqual(r.primary.model, 'z-ai/glm-5.2');
+});
+
+test('router: per-message override beats auto and manual', () => {
+  const { resolveRouting } = require('../lib/router');
+  const r = resolveRouting(
+    { config: routerCfg('auto'), userMessage: 'What is a mutex?', history: [], routeOverride: { provider: 'kimi', model: 'kimi-k2.6' } },
+    routerDeps(['google', 'kimi'])
+  );
+  assert.strictEqual(r.meta.mode, 'override');
+  assert.strictEqual(r.primary.provider, 'kimi');
+  assert.strictEqual(r.primary.model, 'kimi-k2.6');
+});
+
+test('router: consent-gated providers are excluded from auto candidates', () => {
+  const { resolveRouting } = require('../lib/router');
+  const r = resolveRouting(
+    { config: routerCfg('auto'), userMessage: 'What is a mutex?', history: [] },
+    routerDeps(['mistral'])
+  );
+  // Only mistral has keys but consent is off -> falls back to configured manual routes.
+  assert.notStrictEqual(r.primary.provider, 'mistral');
+  assert.match(r.meta.why, /manual routes/);
+  const consented = routerCfg('auto');
+  consented.settings.yolo.mistralConsent = true;
+  const r2 = resolveRouting({ config: consented, userMessage: 'What is a mutex?', history: [] }, routerDeps(['mistral']));
+  assert.strictEqual(r2.primary.provider, 'mistral');
+});
+
+test('router: deprecated routes are skipped in auto mode', () => {
+  const { resolveRouting } = require('../lib/router');
+  // Only groq keyed; on Jul 11 its llama-4-scout route (dies Jul 17) must never surface.
+  const r = resolveRouting(
+    { config: routerCfg('auto'), userMessage: 'Summarize this file briefly.', history: [] },
+    routerDeps(['groq'])
+  );
+  assert.strictEqual(r.primary.provider, 'groq');
+  assert.notStrictEqual(r.primary.model, 'meta-llama/llama-4-scout-17b-16e-instruct');
+});
+
+test('router: rate-limit pressure demotes a provider without breaking ladder order', () => {
+  const { resolveRouting, providerPressure } = require('../lib/router');
+  // gpt-oss-120b lists cerebras before groq; pressure on cerebras flips it.
+  const pressure = providerPressure([
+    { provider: 'cerebras', keyIndex: 0, rateLimited: 3 },
+    { provider: 'groq', keyIndex: 0, rateLimited: 0 }
+  ]);
+  const r = resolveRouting(
+    { config: routerCfg('auto'), userMessage: 'Fix the failing unit test in app/tests/core.test.js so the build passes again.', history: [] },
+    routerDeps(['groq', 'cerebras'], undefined, pressure)
+  );
+  assert.strictEqual(r.primary.provider, 'groq', '429-pressured cerebras demoted below groq');
+  const calm = resolveRouting(
+    { config: routerCfg('auto'), userMessage: 'Fix the failing unit test in app/tests/core.test.js so the build passes again.', history: [] },
+    routerDeps(['groq', 'cerebras'])
+  );
+  assert.strictEqual(calm.primary.provider, 'cerebras', 'ladder order preserved when no pressure');
+});
+
+test('router: quota proximity adds pressure before the 429 wall', () => {
+  const { providerPressure } = require('../lib/router');
+  const { PROVIDERS } = require('../lib/config');
+  const p = providerPressure([
+    { provider: 'github', keyIndex: 0, requests: 140, rateLimited: 0 }, // 140/150 ≥ 90%
+    { provider: 'groq', keyIndex: 0, requests: 100, rateLimited: 0 },   // 100/1000 fine
+    { provider: 'deepseek', keyIndex: 0, requests: 9999, rateLimited: 0 } // no documented rpd
+  ], PROVIDERS);
+  assert.ok(p.github > 0, 'near-cap provider is pressured');
+  assert.strictEqual(p.groq, 0);
+  assert.strictEqual(p.deepseek, 0, 'no rpd → requests alone add no pressure');
+});
+
+test('router: token-based caps (tpd) pressure Cerebras/Mistral before the wall', () => {
+  const { providerPressure } = require('../lib/router');
+  const { PROVIDERS } = require('../lib/config');
+  const p = providerPressure([
+    { provider: 'cerebras', keyIndex: 0, requests: 40, inputTokens: 800_000, outputTokens: 150_000, rateLimited: 0 }, // 950k/1M ≥ 90%
+    { provider: 'mistral', keyIndex: 0, requests: 40, inputTokens: 1_000_000, outputTokens: 0, rateLimited: 0 }       // 1M/33M fine
+  ], PROVIDERS);
+  assert.ok(p.cerebras > 0, 'token-capped provider near tpd is pressured');
+  assert.strictEqual(p.mistral, 0);
+});
+
+test('trace: readSpansCached parses incrementally as the file grows', () => {
+  const trace = require('../lib/trace');
+  const f = path.join(os.tmpdir(), `psq-trace-${Date.now()}.jsonl`);
+  fs.writeFileSync(f, '{"kind":"a"}\n{"kind":"b"}\n');
+  assert.strictEqual(trace.readSpansCached(f).length, 2);
+  fs.appendFileSync(f, '{"kind":"c"}\nnot json\n{"kind":"d"}\n');
+  const spans = trace.readSpansCached(f);
+  assert.deepStrictEqual(spans.map(s => s.kind), ['a', 'b', 'c', 'd'], 'appended lines parsed, corrupt line skipped');
+  assert.strictEqual(trace.readSpansCached(f), spans, 'unchanged file served from cache (same array)');
+  fs.rmSync(f, { force: true });
+  assert.deepStrictEqual(trace.readSpansCached(f), [], 'missing file clears cache');
+});
+
+test('policy: compiled regex cache still enforces blocked and conditional tiers', () => {
+  assert.strictEqual(policy.evaluateCommand('git push --force origin main').tier, 'blocked');
+  assert.strictEqual(policy.evaluateCommand('npm install left-pad').tier, 'conditional');
+  assert.strictEqual(policy.evaluateCommand('node --test tests/core.test.js').tier, 'autonomous');
+  assert.strictEqual(policy.evaluatePath('.env').tier, 'blocked');
+  assert.strictEqual(policy.evaluatePath('governance/AGENTS.policy.json').tier, 'conditional');
+  assert.strictEqual(policy.evaluatePath('src/main.js').tier, 'autonomous');
+});
+
+test('router: auto tunes reasoning effort by difficulty on the same model', () => {
+  const { resolveRouting } = require('../lib/router');
+  const hard = resolveRouting(
+    { config: routerCfg('auto'), userMessage: 'Refactor the architecture end-to-end: analyze the concurrency design, debug the race condition, implement and optimize integration tests, then benchmark.\n1. a\n2. b\n3. c\n' + 'x'.repeat(900), history: [] },
+    routerDeps(['cerebras'])
+  );
+  assert.strictEqual(hard.primary.model, 'gpt-oss-120b');
+  assert.deepStrictEqual(hard.primary.params, { reasoning_effort: 'high' });
 });

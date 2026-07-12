@@ -42,10 +42,14 @@
     <form id="chatForm">
       <textarea id="chatInput" rows="3" placeholder="Describe what to build or fix…  (Ctrl+Enter to send)" spellcheck="false"></textarea>
       <div class="chat-actions">
+        <button type="button" id="modelPickerBtn" class="btn ghost route-pick" title="Model for this chat — Auto routes each prompt by difficulty; pick a model to override">⚡ Auto</button>
+        <button type="button" id="sessionsBtn" class="btn ghost" title="Resume a previous chat session">🕘</button>
         <span class="hint dim">Every agent action + its “why” is traced locally</span>
         <button type="button" id="resetBtn" class="btn ghost" title="Clear conversation">↺ reset</button>
         <button type="submit" id="sendBtn" class="btn primary">Send ▶</button>
       </div>
+      <div id="modelPicker" class="popover hidden" role="menu" aria-label="Model picker"></div>
+      <div id="sessionPicker" class="popover hidden" role="menu" aria-label="Session picker"></div>
     </form>
   </section>
 
@@ -64,6 +68,7 @@
           <option value="">all spans</option>
           <option value="tool_call">tool calls</option>
           <option value="llm_call">LLM calls</option>
+          <option value="router">routing</option>
           <option value="agent_turn">turns</option>
           <option value="approval">approvals</option>
         </select>
@@ -90,6 +95,7 @@
 </main>
 
 <dialog id="settingsDlg">
+  <button type="button" class="dlg-x" id="settingsX" title="Close" aria-label="Close settings">✕</button>
   <h2>Settings</h2>
 
   <h3>Autonomy (YOLO mode)</h3>
@@ -103,11 +109,16 @@
     <label class="switch big"><input type="checkbox" id="setAgora"><span class="slider"></span><em>Agora ritual<small>Require one brainstorm post per completed agent task</small></em></label>
     <label class="switch big"><input type="checkbox" id="setSandbox"><span class="slider"></span><em>WSL sandbox<small id="sandboxNote">Route run_command through WSL (Linux bash) instead of host PowerShell</small></em></label>
   </div>
-  <label class="inline-num">Max agent iterations <input type="number" id="setMaxIter" min="1" max="100"></label>
+  <label class="inline-num">Max agent iterations <input type="range" id="setMaxIter" min="1" max="100" step="1"><output id="maxIterVal">25</output></label>
 
   <h3>Model routing</h3>
-  <div class="route-row"><span>Primary</span><select id="routePrimaryProvider"></select><input id="routePrimaryModel" placeholder="model id, e.g. qwen/qwen3-coder:free" spellcheck="false"></div>
-  <div class="route-row"><span>Fallback</span><select id="routeFallbackProvider"></select><input id="routeFallbackModel" placeholder="model id, e.g. llama-3.3-70b-versatile" spellcheck="false"></div>
+  <div class="seg" id="routeModeSeg" role="radiogroup" aria-label="Routing mode">
+    <label class="seg-opt"><input type="radio" name="routeMode" value="auto" id="modeAuto"><span>⚡ Auto<small>Route each prompt to the best-fit model for its difficulty — saves tokens on easy tasks, escalates hard ones</small></span></label>
+    <label class="seg-opt"><input type="radio" name="routeMode" value="manual" id="modeManual"><span>🎛 Manual<small>Always use the fixed primary/fallback below</small></span></label>
+  </div>
+  <div class="route-row"><span>Primary</span><select id="routePrimaryProvider"></select><select id="routePrimaryModel"></select><input id="routePrimaryCustom" class="hidden" placeholder="custom model id" spellcheck="false"></div>
+  <div class="route-row"><span>Fallback</span><select id="routeFallbackProvider"></select><select id="routeFallbackModel"></select><input id="routeFallbackCustom" class="hidden" placeholder="custom model id" spellcheck="false"></div>
+  <p class="dim route-note" id="routeNote">In Auto mode these two act as the last-resort route when no smart-ladder model has a usable key.</p>
 
   <h3>API keys <span id="vaultNote" class="dim"></span></h3>
   <div id="keysEditor"></div>
@@ -134,6 +145,7 @@
 </dialog>
 
 <dialog id="fsDlg">
+  <button type="button" class="dlg-x" id="fsX" title="Close" aria-label="Close folder picker">✕</button>
   <h3>Choose a project folder</h3>
   <div id="fsPath" class="dim" style="margin-bottom:8px;word-break:break-all"></div>
   <div id="fsList" class="fs-list"></div>

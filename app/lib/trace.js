@@ -30,21 +30,61 @@ function span(entry) {
   try { fs.appendFileSync(traceFile(), JSON.stringify(rec) + '\n'); } catch { /* tracing must never break the app */ }
 }
 
+/**
+ * Incremental parse cache. Trace files are append-only and this process is
+ * their only writer, so once a byte range is parsed it never changes: re-parse
+ * only the bytes appended since the last read. This turns the HUD usage poll
+ * and per-turn summaries from O(file) JSON re-parsing into an O(new spans)
+ * append — the previous full re-read was the app's hottest wasted cycle on
+ * the 8 GB target hardware.
+ */
+const CACHE_MAX_SPANS = 6000; // > the largest query limit used (5000)
+const parseCache = new Map(); // file -> { size, spans[] }
+
+function parseJsonl(text) {
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try { out.push(JSON.parse(line)); } catch { /* skip corrupt line */ }
+  }
+  return out;
+}
+
+function readSpansCached(file) {
+  let st;
+  try { st = fs.statSync(file); } catch { parseCache.delete(file); return []; }
+  const cached = parseCache.get(file);
+  if (cached && cached.size === st.size) return cached.spans;
+  let spans;
+  try {
+    if (cached && st.size > cached.size) {
+      // Append-only growth: read and parse just the new tail.
+      const fd = fs.openSync(file, 'r');
+      let buf;
+      try {
+        buf = Buffer.alloc(st.size - cached.size);
+        fs.readSync(fd, buf, 0, buf.length, cached.size);
+      } finally { fs.closeSync(fd); }
+      spans = cached.spans.concat(parseJsonl(buf.toString('utf8')));
+    } else {
+      // First read, or the file shrank (shouldn't happen — full re-read).
+      spans = parseJsonl(fs.readFileSync(file, 'utf8'));
+    }
+  } catch { return cached ? cached.spans : []; }
+  if (spans.length > CACHE_MAX_SPANS) spans = spans.slice(-CACHE_MAX_SPANS);
+  parseCache.set(file, { size: st.size, spans });
+  return spans;
+}
+
 /** Read recent spans (today + yesterday), newest last. */
 function query({ limit = 300, kind = null, sessionId = null } = {}) {
   const days = [new Date(Date.now() - 86400000).toISOString().slice(0, 10), new Date().toISOString().slice(0, 10)];
   let out = [];
   for (const d of days) {
-    let raw;
-    try { raw = fs.readFileSync(traceFile(d), 'utf8'); } catch { continue; }
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const rec = JSON.parse(line);
-        if (kind && rec.kind !== kind) continue;
-        if (sessionId && rec.sessionId !== sessionId) continue;
-        out.push(rec);
-      } catch { /* skip corrupt line */ }
+    for (const rec of readSpansCached(traceFile(d))) {
+      if (kind && rec.kind !== kind) continue;
+      if (sessionId && rec.sessionId !== sessionId) continue;
+      out.push(rec);
     }
   }
   return out.slice(-limit);
@@ -152,4 +192,4 @@ function readHandoff() {
   try { return fs.readFileSync(HANDOFF_PATH, 'utf8'); } catch { return '# Session Handoff Digest\n\n_No sessions traced yet._'; }
 }
 
-module.exports = { span, query, usageSummary, budgetByKey, writeHandoff, readHandoff, setEnabled };
+module.exports = { span, query, usageSummary, budgetByKey, writeHandoff, readHandoff, setEnabled, readSpansCached };

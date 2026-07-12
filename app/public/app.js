@@ -4,7 +4,9 @@ let CONFIG = null;
 let PROJECT_DIR = null;
 let TREE = [];
 let BUDGET = []; // per-key usage today, from /api/budget
-const SESSION_ID = 'ui-' + Math.random().toString(36).slice(2);
+let CATALOG_UI = null;    // /api/catalog → { provider: [model entries] }
+let ROUTE_OVERRIDE = null; // session-scoped manual route from the chat picker
+let SESSION_ID = 'ui-' + Math.random().toString(36).slice(2);
 
 /* ---------- helpers ---------- */
 async function api(path, opts) {
@@ -89,8 +91,47 @@ async function refreshUsage() {
 }
 function fmtK(n) { return n > 9999 ? (n / 1000).toFixed(1) + 'k' : String(n || 0); }
 
+/* ---------- model catalog (friction-free pickers) ---------- */
+async function loadCatalog() {
+  if (!CATALOG_UI) { try { CATALOG_UI = (await api('/api/catalog')).providers || {}; } catch { CATALOG_UI = {}; } }
+  return CATALOG_UI;
+}
+// Populate a routing model <select> from the catalog for `provider`, keeping
+// the currently configured model selectable even if it left the catalog, and
+// always offering a "Custom…" escape hatch (the only place typing remains).
+function fillModelSelect(selectEl, customEl, provider, currentModel) {
+  const models = (CATALOG_UI && CATALOG_UI[provider]) || [];
+  selectEl.innerHTML = '';
+  let found = false;
+  for (const m of models) {
+    const o = document.createElement('option');
+    o.value = m.value;
+    o.textContent = `${m.label}  ·  ${m.value}${m.deprecatedSoon ? '  ⚠ deprecating' : ''}`;
+    o.title = [m.note, m.deprecated ? `Provider shutdown ${m.deprecated}` : ''].filter(Boolean).join(' — ');
+    if (m.value === currentModel) { o.selected = true; found = true; }
+    selectEl.appendChild(o);
+  }
+  if (currentModel && !found) {
+    const o = document.createElement('option');
+    o.value = currentModel; o.textContent = `${currentModel}  (current)`; o.selected = true;
+    selectEl.appendChild(o);
+  }
+  const custom = document.createElement('option');
+  custom.value = '__custom__'; custom.textContent = '✏️ Custom model id…';
+  selectEl.appendChild(custom);
+  if (!models.length && !currentModel) custom.selected = true;
+  syncCustomInput(selectEl, customEl);
+}
+function syncCustomInput(selectEl, customEl) {
+  customEl.classList.toggle('hidden', selectEl.value !== '__custom__');
+}
+function modelValue(selectEl, customEl) {
+  return selectEl.value === '__custom__' ? customEl.value.trim() : selectEl.value;
+}
+
 async function fillSettingsDlg() {
   try { BUDGET = (await api('/api/budget')).keys || []; } catch { BUDGET = []; }
+  await loadCatalog();
   const s = CONFIG.settings;
   $('#setAutoEdits').checked = s.yolo.autoApproveEdits;
   $('#setAutoCmds').checked = s.yolo.autoRunCommands;
@@ -106,6 +147,7 @@ async function fillSettingsDlg() {
     ? 'Route run_command through WSL (Linux bash) instead of host PowerShell'
     : 'Unavailable — no runnable WSL distro found. Run `wsl --install`, then reopen Settings.';
   $('#setMaxIter').value = s.maxIterations;
+  $('#maxIterVal').textContent = s.maxIterations;
   renderCustomProviders();
   $('#vaultNote').textContent = CONFIG.vault && CONFIG.vault.encrypted ? '(encrypted at rest with Windows DPAPI)' : '(vault will be created on first key)';
   const provs = Object.keys(CONFIG.providers);
@@ -113,12 +155,21 @@ async function fillSettingsDlg() {
     const el = $(sel); el.innerHTML = '';
     provs.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = CONFIG.providers[p].label; el.appendChild(o); });
   }
+  const mode = (CONFIG.routing.mode || 'auto') === 'manual' ? 'manual' : 'auto';
+  $('#modeAuto').checked = mode === 'auto';
+  $('#modeManual').checked = mode === 'manual';
   $('#routePrimaryProvider').value = CONFIG.routing.primary.provider;
-  $('#routePrimaryModel').value = CONFIG.routing.primary.model;
   $('#routeFallbackProvider').value = CONFIG.routing.fallback.provider;
-  $('#routeFallbackModel').value = CONFIG.routing.fallback.model;
+  fillModelSelect($('#routePrimaryModel'), $('#routePrimaryCustom'), CONFIG.routing.primary.provider, CONFIG.routing.primary.model);
+  fillModelSelect($('#routeFallbackModel'), $('#routeFallbackCustom'), CONFIG.routing.fallback.provider, CONFIG.routing.fallback.model);
   renderKeysEditor();
 }
+// Provider change re-fills its model dropdown; picking "Custom…" reveals the text input.
+$('#routePrimaryProvider').onchange = () => fillModelSelect($('#routePrimaryModel'), $('#routePrimaryCustom'), $('#routePrimaryProvider').value, '');
+$('#routeFallbackProvider').onchange = () => fillModelSelect($('#routeFallbackModel'), $('#routeFallbackCustom'), $('#routeFallbackProvider').value, '');
+$('#routePrimaryModel').onchange = () => syncCustomInput($('#routePrimaryModel'), $('#routePrimaryCustom'));
+$('#routeFallbackModel').onchange = () => syncCustomInput($('#routeFallbackModel'), $('#routeFallbackCustom'));
+$('#setMaxIter').oninput = () => { $('#maxIterVal').textContent = $('#setMaxIter').value; };
 function renderKeysEditor() {
   const box = $('#keysEditor'); box.innerHTML = '';
   for (const [name, p] of Object.entries(CONFIG.providers)) {
@@ -135,7 +186,13 @@ function renderKeysEditor() {
       const toks = b ? (b.inputTokens + b.outputTokens) : 0;
       const health = st.calls ? ` · ♥${st.healthPct}%` : '';
       const cool = st.cooled ? ` · cooldown ${st.resetInSec}s` : '';
-      row.innerHTML = `<span>${k.masked}</span><span class="dim">w=${k.weight} · ${reqs} req · ${fmtK(toks)} tok today${health}${cool}</span>`;
+      // Show used/limit when the provider's free-tier daily cap is known
+      // (rpd = requests/day; tpd = tokens/day for Cerebras/Mistral).
+      const ft = p.freeTier || {};
+      const reqTxt = ft.rpd ? `${reqs}/${ft.rpd} req` : `${reqs} req`;
+      const tokTxt = ft.tpd ? `${fmtK(toks)}/${fmtK(ft.tpd)} tok today` : `${fmtK(toks)} tok today`;
+      const nearCap = (ft.rpd && reqs >= ft.rpd * 0.9) || (ft.tpd && toks >= ft.tpd * 0.9);
+      row.innerHTML = `<span>${k.masked}</span><span class="${nearCap ? 'key-cool' : 'dim'}">w=${k.weight} · ${reqTxt} · ${tokTxt}${health}${cool}${nearCap ? ' · ⚠ near daily cap' : ''}</span>`;
       const del = document.createElement('button');
       del.textContent = '✕'; del.className = 'mini-btn';
       del.onclick = async () => { await api('/api/keys', { method: 'POST', body: JSON.stringify({ provider: name, remove: i }) }); await loadConfig(); fillSettingsDlg(); toast('Key removed'); };
@@ -148,6 +205,7 @@ function renderKeysEditor() {
 }
 $('#settingsBtn').onclick = async () => { await fillSettingsDlg(); $('#settingsDlg').showModal(); };
 $('#closeSettingsBtn').onclick = () => $('#settingsDlg').close();
+$('#settingsX').onclick = () => $('#settingsDlg').close();
 $('#addKeyBtn').onclick = async () => {
   const key = $('#newKeyValue').value.trim();
   if (!key) return;
@@ -157,6 +215,9 @@ $('#addKeyBtn').onclick = async () => {
   toast(r.encrypted ? 'Key stored in DPAPI-encrypted vault 🔒' : 'Key stored (plaintext fallback — DPAPI unavailable)', r.encrypted ? 'ok' : 'err');
 };
 $('#saveSettingsBtn').onclick = async () => {
+  const primaryModel = modelValue($('#routePrimaryModel'), $('#routePrimaryCustom'));
+  const fallbackModel = modelValue($('#routeFallbackModel'), $('#routeFallbackCustom'));
+  if (!primaryModel || !fallbackModel) { toast('Pick a model for both routes (or fill in the custom id).', 'err'); return; }
   await api('/api/config', { method: 'POST', body: JSON.stringify({
     settings: {
       yolo: {
@@ -172,8 +233,9 @@ $('#saveSettingsBtn').onclick = async () => {
       maxIterations: +$('#setMaxIter').value || 25
     },
     routing: {
-      primary: { provider: $('#routePrimaryProvider').value, model: $('#routePrimaryModel').value.trim() },
-      fallback: { provider: $('#routeFallbackProvider').value, model: $('#routeFallbackModel').value.trim() }
+      mode: $('#modeManual').checked ? 'manual' : 'auto',
+      primary: { provider: $('#routePrimaryProvider').value, model: primaryModel },
+      fallback: { provider: $('#routeFallbackProvider').value, model: fallbackModel }
     }
   }) });
   await loadConfig();
@@ -216,6 +278,7 @@ async function fsBrowse(dir) {
 $('#browseBtn').onclick = () => { fsBrowse($('#projectDir').value.trim() || ''); $('#fsDlg').showModal(); };
 $('#fsUpBtn').onclick = () => fsBrowse($('#fsUpBtn').dataset.parent || '');
 $('#fsCancelBtn').onclick = () => $('#fsDlg').close();
+$('#fsX').onclick = () => $('#fsDlg').close();
 $('#fsOpenBtn').onclick = () => { if (!FS_CUR) return; $('#projectDir').value = FS_CUR; $('#fsDlg').close(); openProject(); };
 $('#refreshTreeBtn').onclick = async () => { if (PROJECT_DIR) { const { tree } = await api(`/api/project/tree?dir=${encodeURIComponent(PROJECT_DIR)}`); TREE = tree; renderTree(); } };
 $('#treeFilter').oninput = () => renderTree();
@@ -279,6 +342,110 @@ function renderTree() {
   if (!box.children.length) box.innerHTML = '<em class="dim">No files match.</em>';
 }
 
+/* ---------- chat model picker (per-session route override) ---------- */
+function mpOption(route, label, sub, checked, disabled, tier) {
+  const row = document.createElement('label');
+  row.className = 'mp-opt' + (disabled ? ' mp-disabled' : '');
+  const r = document.createElement('input');
+  r.type = 'radio'; r.name = 'mpRoute'; r.checked = !!checked; r.disabled = !!disabled;
+  r.onchange = () => { setRouteOverride(route); hideModelPicker(); };
+  row.appendChild(r);
+  const body = document.createElement('span');
+  body.className = 'mp-txt';
+  body.innerHTML = `<b>${esc(label)}</b>${tier ? ` <i class="mp-tier mp-${tier}">${esc(tier)}</i>` : ''}<small>${esc(sub)}</small>`;
+  row.appendChild(body);
+  return row;
+}
+async function buildModelPicker() {
+  await loadCatalog();
+  const box = $('#modelPicker'); box.innerHTML = '';
+  const head = document.createElement('div'); head.className = 'mp-head';
+  head.textContent = 'Model for this chat session';
+  box.appendChild(head);
+  box.appendChild(mpOption(null, '⚡ Auto (recommended)', 'routes each prompt to the best-fit free-tier model for its difficulty', !ROUTE_OVERRIDE));
+  // Providers with keys sort first — those are the ones that will actually answer.
+  const provs = Object.entries(CONFIG.providers)
+    .filter(([name]) => (CATALOG_UI[name] || []).length)
+    .sort((a, b) => (b[1].keys.length ? 1 : 0) - (a[1].keys.length ? 1 : 0));
+  for (const [name, p] of provs) {
+    const g = document.createElement('div'); g.className = 'mp-group';
+    g.innerHTML = `<span>${esc(p.label)}</span><em>${p.keys.length ? `${p.keys.length} key${p.keys.length > 1 ? 's' : ''}` : 'no key — add in ⚙'}</em>`;
+    box.appendChild(g);
+    for (const m of CATALOG_UI[name]) {
+      const checked = !!ROUTE_OVERRIDE && ROUTE_OVERRIDE.provider === name && ROUTE_OVERRIDE.model === m.value;
+      const sub = [m.value, m.deprecatedSoon ? '⚠ deprecating soon' : '', m.note].filter(Boolean).join(' · ');
+      box.appendChild(mpOption({ provider: name, model: m.value, label: m.label }, m.label, sub, checked, !p.keys.length, m.tier));
+    }
+  }
+}
+function setRouteOverride(route) {
+  ROUTE_OVERRIDE = route;
+  const btn = $('#modelPickerBtn');
+  btn.textContent = route ? `🎯 ${route.label || route.model}` : '⚡ Auto';
+  btn.classList.toggle('overridden', !!route);
+  toast(route ? `This chat now uses ${route.provider}/${route.model}` : 'Auto routing re-enabled', 'ok');
+}
+function hideModelPicker() { $('#modelPicker').classList.add('hidden'); }
+$('#modelPickerBtn').onclick = async () => {
+  const pick = $('#modelPicker');
+  if (pick.classList.contains('hidden')) { await buildModelPicker(); pick.classList.remove('hidden'); }
+  else hideModelPicker();
+};
+document.addEventListener('click', (e) => {
+  const pick = $('#modelPicker');
+  if (!pick.classList.contains('hidden') && !pick.contains(e.target) && !$('#modelPickerBtn').contains(e.target)) hideModelPicker();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { hideModelPicker(); hideSessionPicker(); } });
+
+/* ---------- session resume picker ---------- */
+async function buildSessionPicker() {
+  const box = $('#sessionPicker'); box.innerHTML = '';
+  const head = document.createElement('div'); head.className = 'mp-head';
+  head.textContent = 'Chat sessions';
+  box.appendChild(head);
+  const fresh = document.createElement('button');
+  fresh.type = 'button'; fresh.className = 'fs-item';
+  fresh.textContent = '✨ New chat';
+  fresh.onclick = () => {
+    SESSION_ID = 'ui-' + Math.random().toString(36).slice(2);
+    $('#chatLog').innerHTML = '';
+    addMsg('status', 'New chat session started.');
+    hideSessionPicker();
+  };
+  box.appendChild(fresh);
+  let list = [];
+  try { list = (await api('/api/sessions')).sessions || []; } catch { /* ignore */ }
+  for (const s of list.slice(0, 15)) {
+    const row = document.createElement('button');
+    row.type = 'button'; row.className = 'fs-item' + (s.id === SESSION_ID ? ' current' : '');
+    row.innerHTML = `<b>${esc(s.title)}</b><small class="dim"> · ${s.messages} msgs · ${s.updated ? new Date(s.updated).toLocaleString() : ''}</small>`;
+    row.onclick = () => resumeSession(s.id);
+    box.appendChild(row);
+  }
+  if (!list.length) { const e = document.createElement('div'); e.className = 'dim'; e.style.padding = '6px 8px'; e.textContent = 'No saved sessions yet.'; box.appendChild(e); }
+}
+async function resumeSession(sid) {
+  hideSessionPicker();
+  try {
+    const { display } = await api(`/api/session?id=${encodeURIComponent(sid)}`);
+    SESSION_ID = sid;
+    needsReset = false;
+    $('#chatLog').innerHTML = '';
+    addMsg('status', `Resumed session ${sid} (${display.length} entries). Continue where you left off.`);
+    for (const d of display) addMsg(d.kind === 'tool' ? 'tool ok' : d.kind, d.text);
+  } catch (e) { toast(e.message, 'err'); }
+}
+function hideSessionPicker() { $('#sessionPicker').classList.add('hidden'); }
+$('#sessionsBtn').onclick = async () => {
+  const pick = $('#sessionPicker');
+  if (pick.classList.contains('hidden')) { await buildSessionPicker(); pick.classList.remove('hidden'); }
+  else hideSessionPicker();
+};
+document.addEventListener('click', (e) => {
+  const pick = $('#sessionPicker');
+  if (!pick.classList.contains('hidden') && !pick.contains(e.target) && !$('#sessionsBtn').contains(e.target)) hideSessionPicker();
+});
+
 /* ---------- chat / agent stream ---------- */
 $('#chatForm').onsubmit = (e) => { e.preventDefault(); send(); };
 $('#chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); send(); } });
@@ -296,7 +463,10 @@ async function send() {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: SESSION_ID, dir: PROJECT_DIR, message: text, reset: needsReset })
+      body: JSON.stringify({
+        sessionId: SESSION_ID, dir: PROJECT_DIR, message: text, reset: needsReset,
+        ...(ROUTE_OVERRIDE ? { routeOverride: { provider: ROUTE_OVERRIDE.provider, model: ROUTE_OVERRIDE.model } } : {})
+      })
     });
     needsReset = false;
     if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || res.statusText); }
@@ -345,14 +515,22 @@ async function send() {
 function handleEvent(ev) {
   switch (ev.type) {
     case 'status': addMsg('status', ev.text); break;
+    case 'route_plan': {
+      const tag = ev.mode === 'auto' ? `⚡ auto (${ev.difficulty} ${ev.kind})` : (ev.mode === 'override' ? '🎯 your override' : '🎛 manual');
+      addMsg('status', `Router ${tag}: ${ev.provider}/${ev.model}${ev.fallback ? ` — fallback ${ev.fallback}` : ''}`);
+      break;
+    }
     case 'route': { const b = $('#routeBadge'); b.textContent = `${ev.provider}/${ev.model}`; b.classList.add('accent'); window.currentAssistantMsg = null; break; }
     case 'text': showTyping(false); addMsg('assistant', ev.text); showTyping(true); window.currentAssistantMsg = null; break;
-    case 'text_delta': 
-      // Handle streaming text deltas
+    case 'text_delta':
+      // Handle streaming text deltas. Append a text node (not innerHTML +=,
+      // which re-parses the whole bubble on every delta — O(n²) on long
+      // answers) and keep the log pinned to the bottom while streaming.
       if (!window.currentAssistantMsg) {
         window.currentAssistantMsg = addMsg('assistant', '');
       }
-      window.currentAssistantMsg.innerHTML += esc(ev.text);
+      window.currentAssistantMsg.appendChild(document.createTextNode(ev.text));
+      $('#chatLog').scrollTop = $('#chatLog').scrollHeight;
       showTyping(true);
       break;
     case 'tool_call': {
@@ -488,6 +666,7 @@ async function renderTrace() {
     let line = '';
     if (s.kind === 'llm_call') line = `<b>${esc(s['gen_ai.request.model'] || '?')}</b> <span class="meta">${esc(s.provider || '')} · ${s['gen_ai.usage.input_tokens'] || 0}▸${s['gen_ai.usage.output_tokens'] || 0} tok · ${s.latencyMs || 0}ms · ${esc(s.status)}</span>`;
     else if (s.kind === 'tool_call') line = `<b>${esc(s.name)}</b> <span class="meta">${esc((s.target || '').toString().slice(0, 80))} · ${esc(s.status || 'ok')}</span>` + (s.why ? `<span class="why">${esc(s.why)}</span>` : '');
+    else if (s.kind === 'router') line = `<b>route ${esc(s.mode)}</b> <span class="meta">${esc(s.difficulty || '')} ${esc(s.taskKind || '')} → ${esc(s.chosen || '')}</span>` + (s.why ? `<span class="why">${esc(s.why)}</span>` : '');
     else if (s.kind === 'agent_turn') line = `<b>turn ${esc(s.phase)}</b> <span class="meta">${esc((s.goal || s.outcome || '').toString().slice(0, 90))}</span>`;
     else if (s.kind === 'approval') line = `<b>human gate</b> <span class="meta">${esc(s.status)}</span>`;
     else line = `<b>${esc(s.name || s.kind)}</b> <span class="meta">${esc((s.project || '').toString().slice(0, 60))}</span>`;
@@ -502,7 +681,9 @@ async function renderAudit() {
   for (const a of audit.slice().reverse()) {
     const d = document.createElement('div');
     d.className = 'audit-entry';
-    d.innerHTML = `<b>${esc(a.tool)}</b> ${a.blocked ? '⛔ ' : ''}${esc((a.target || '').toString().slice(0, 110))} <span style="float:right">${new Date(a.ts).toLocaleTimeString()}</span>`;
+    const dur = Number.isFinite(a.durationMs) ? ` · ${a.durationMs}ms` : '';
+    const st = a.status && a.status !== 'ok' ? ` · ${esc(a.status)}` : '';
+    d.innerHTML = `<b>${esc(a.tool)}</b> ${a.blocked ? '⛔ ' : ''}${esc((a.target || '').toString().slice(0, 110))}${st}${dur} <span style="float:right">${new Date(a.ts).toLocaleTimeString()}</span>`;
     box.appendChild(d);
   }
   if (!audit.length) box.innerHTML = '<em class="dim">No agent actions this session.</em>';

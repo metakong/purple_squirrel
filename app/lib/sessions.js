@@ -39,7 +39,11 @@ function list() {
       .map(f => {
         try {
           const s = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf8'));
-          return { id: s.id, updated: s.updated, messages: (s.history || []).length };
+          const firstUser = (s.history || []).find(m => m.role === 'user' && typeof m.content === 'string');
+          return {
+            id: s.id, updated: s.updated, messages: (s.history || []).length,
+            title: firstUser ? firstUser.content.replace(/\s+/g, ' ').slice(0, 60) : '(no messages)'
+          };
         } catch { return null; }
       })
       .filter(Boolean)

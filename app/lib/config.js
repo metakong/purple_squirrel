@@ -12,13 +12,18 @@ const { CONFIG_PATH } = require('./paths');
 // github 2026-07-11; without it those providers stream zero usage and the
 // budget ledger undercounts). Mistral/Kimi include usage automatically and
 // may reject the param, so they don't get the flag.
+// freeTier.rpd: documented free-tier daily request limits (docs/research
+// provider table, 2026-07-11; conservative bound where a range is given).
+// Surfaced as used/limit in the UI and fed into router quota pressure.
 const PROVIDERS = {
-  openrouter: { label: 'OpenRouter (Free)', endpoint: 'https://openrouter.ai/api/v1/chat/completions', docs: 'https://openrouter.ai/keys', supportsStreaming: true, streamUsage: true },
-  google:     { label: 'Google AI Studio',  endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', docs: 'https://aistudio.google.com/apikey', supportsStreaming: true, streamUsage: true },
-  groq:       { label: 'Groq (Free)',       endpoint: 'https://api.groq.com/openai/v1/chat/completions', docs: 'https://console.groq.com/keys', supportsStreaming: true, streamUsage: true },
-  cerebras:   { label: 'Cerebras (Free)',   endpoint: 'https://api.cerebras.ai/v1/chat/completions', docs: 'https://cloud.cerebras.ai', supportsStreaming: true, streamUsage: true },
-  github:     { label: 'GitHub Models',     endpoint: 'https://models.github.ai/inference/chat/completions', docs: 'https://github.com/settings/tokens', maxInputTokens: 8000, supportsStreaming: true, streamUsage: true },
-  mistral:    { label: 'Mistral (Experiment)', endpoint: 'https://api.mistral.ai/v1/chat/completions', docs: 'https://console.mistral.ai', consentRequired: true, supportsStreaming: true, noToolRole: true },
+  openrouter: { label: 'OpenRouter (Free)', endpoint: 'https://openrouter.ai/api/v1/chat/completions', docs: 'https://openrouter.ai/keys', supportsStreaming: true, streamUsage: true, freeTier: { rpd: 50 } },
+  google:     { label: 'Google AI Studio',  endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', docs: 'https://aistudio.google.com/apikey', supportsStreaming: true, streamUsage: true, freeTier: { rpd: 1500 } },
+  groq:       { label: 'Groq (Free)',       endpoint: 'https://api.groq.com/openai/v1/chat/completions', docs: 'https://console.groq.com/keys', supportsStreaming: true, streamUsage: true, freeTier: { rpd: 1000 } },
+  // freeTier.tpd: token-based daily caps where the docs give tokens, not
+  // requests (Cerebras ~1M tokens/day; Mistral ~1B tokens/month ≈ 33M/day).
+  cerebras:   { label: 'Cerebras (Free)',   endpoint: 'https://api.cerebras.ai/v1/chat/completions', docs: 'https://cloud.cerebras.ai', supportsStreaming: true, streamUsage: true, freeTier: { tpd: 1_000_000 } },
+  github:     { label: 'GitHub Models',     endpoint: 'https://models.github.ai/inference/chat/completions', docs: 'https://github.com/settings/tokens', maxInputTokens: 8000, supportsStreaming: true, streamUsage: true, freeTier: { rpd: 150 } },
+  mistral:    { label: 'Mistral (Experiment)', endpoint: 'https://api.mistral.ai/v1/chat/completions', docs: 'https://console.mistral.ai', consentRequired: true, supportsStreaming: true, noToolRole: true, freeTier: { tpd: 33_000_000 } },
   deepseek:   { label: 'DeepSeek Direct',   endpoint: 'https://api.deepseek.com/chat/completions', docs: 'https://platform.deepseek.com', supportsStreaming: true, streamUsage: true },
   kimi:       { label: 'Moonshot / Kimi',   endpoint: 'https://api.moonshot.ai/v1/chat/completions', docs: 'https://platform.moonshot.ai', forceParams: { temperature: 1.0, top_p: 0.95 }, supportsStreaming: true }
 };
@@ -26,8 +31,12 @@ const PROVIDERS = {
 const DEFAULT_CONFIG = {
   port: 4477,
   routing: {
-    primary:  { provider: 'openrouter', model: 'qwen/qwen3-coder:free' },
-    fallback: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
+    // mode 'auto': lib/router.js picks models per prompt difficulty from the
+    // catalog ladders; primary/fallback below are the manual-mode routes and
+    // auto mode's last resort. Model ids come from docs/research (2026-07-11).
+    mode: 'auto',
+    primary:  { provider: 'openrouter', model: 'z-ai/glm-5.2' },
+    fallback: { provider: 'groq', model: 'openai/gpt-oss-120b' }
   },
   // Declarative custom OpenAI-compatible providers (safe subset of a plugin
   // system — no code loading): { id: { label, endpoint, maxInputTokens? } }
@@ -117,11 +126,19 @@ function getKeys(provider) { return getSecrets().providers[provider] || []; }
 function validate(cfg) {
   const warnings = [];
   const providers = getProviders(cfg);
+  const catalog = require('./catalog'); // lazy: avoids cost when validate() is unused
+  if (cfg.routing && cfg.routing.mode && !['auto', 'manual'].includes(cfg.routing.mode)) {
+    warnings.push(`routing.mode: "${cfg.routing.mode}" is not "auto" or "manual".`);
+  }
   for (const role of ['primary', 'fallback']) {
     const r = cfg.routing && cfg.routing[role];
     if (!r) continue;
     if (r.provider && !providers[r.provider]) warnings.push(`routing.${role}: unknown provider "${r.provider}" (not in the registry).`);
     if (r.provider && !r.model) warnings.push(`routing.${role}: no model set for provider "${r.provider}".`);
+    if (r.provider && r.model) {
+      const dep = catalog.deprecationFor(r.provider, r.model);
+      if (dep) warnings.push(`routing.${role}: ${r.provider}/${r.model} is scheduled for provider shutdown on ${dep} — pick a replacement in Settings.`);
+    }
   }
   if (!Number.isInteger(cfg.port) || cfg.port < 1 || cfg.port > 65535) {
     warnings.push(`port: ${cfg.port} is not a valid TCP port (1–65535).`);

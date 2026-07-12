@@ -43,6 +43,13 @@ class KeyPool {
     st[index].cooldownUntil = Date.now() + seconds * 1000;
   }
 
+  // Keep state aligned when a key is deleted from the vault: without this,
+  // the next key inherits the removed key's health/cooldown record.
+  remove(provider, index) {
+    const arr = this.state[provider];
+    if (arr && index >= 0 && index < arr.length) arr.splice(index, 1);
+  }
+
   // Record call outcome for health scoring.
   recordResult(provider, index, success, latencyMs) {
     const st = this._ensure(provider, index + 1);

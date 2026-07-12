@@ -104,6 +104,13 @@ async function chatCompletion({ config, messages, tools, sessionId, onStatus, on
       if (useStreaming && prov.streamUsage) body.stream_options = { include_usage: true };
       if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
       if (prov.forceParams) Object.assign(body, prov.forceParams);
+      // Route-level tuning from the model catalog (e.g. reasoning_effort per
+      // task difficulty). Applied after provider forceParams so a model's
+      // documented knobs win; never allowed to clobber the stream contract.
+      if (route.params && typeof route.params === 'object') {
+        const { stream: _s, stream_options: _so, ...extras } = route.params;
+        Object.assign(body, extras);
+      }
 
       const started = Date.now();
       try {

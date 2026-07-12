@@ -9,6 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const configStore = require('./lib/config');
+const catalog = require('./lib/catalog');
 const keypool = require('./lib/keypool');
 const trace = require('./lib/trace');
 const vault = require('./lib/vault');
@@ -63,6 +64,7 @@ function publicConfig() {
       docs: meta.docs,
       consentRequired: !!meta.consentRequired,
       custom: !!meta.custom,
+      freeTier: meta.freeTier || null,
       keys: keys.map(k => ({ masked: k.key.slice(0, 6) + '…' + k.key.slice(-4), weight: k.weight || 1 })),
       keyStatus: keypool.status(name, keys)
     };
@@ -86,6 +88,12 @@ const server = http.createServer(async (req, res) => {
     // ---------- API ----------
     if (url.pathname === '/api/config' && req.method === 'GET') return json(res, 200, publicConfig());
 
+    // Model catalog for friction-free pickers: per registered provider, the
+    // selectable models (exact API ids from docs/research, 2026-07-11).
+    if (url.pathname === '/api/catalog' && req.method === 'GET') {
+      return json(res, 200, { providers: catalog.forUi(configStore.getProviders(config)) });
+    }
+
     if (url.pathname === '/api/config' && req.method === 'POST') {
       const body = await readBody(req);
       if (body.settings) config.settings = { ...config.settings, ...body.settings, yolo: { ...config.settings.yolo, ...(body.settings.yolo || {}) } };
@@ -98,7 +106,7 @@ const server = http.createServer(async (req, res) => {
       const { provider, key, weight, remove } = await readBody(req);
       if (!configStore.getProviders(config)[provider]) return json(res, 400, { error: 'Unknown provider' });
       let encrypted;
-      if (remove !== undefined) encrypted = configStore.removeKey(provider, remove);
+      if (remove !== undefined) { encrypted = configStore.removeKey(provider, remove); keypool.remove(provider, remove); }
       else if (key) encrypted = configStore.addKey(provider, key, weight || 1);
       else return json(res, 400, { error: 'No key provided' });
       return json(res, 200, { ok: true, encrypted });
@@ -188,6 +196,27 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/sessions' && req.method === 'GET') return json(res, 200, { sessions: sessionStore.list() });
 
+    // One session's history, shaped for chat-log replay (tool messages become
+    // one-line summaries; raw tool payloads stay server-side).
+    if (url.pathname === '/api/session' && req.method === 'GET') {
+      const sid = url.searchParams.get('id') || '';
+      const session = sessions.get(sid) || sessionStore.load(sid);
+      if (!session) return json(res, 404, { error: 'Session not found' });
+      const display = [];
+      for (const m of session.history || []) {
+        if (m.role === 'user' && typeof m.content === 'string') {
+          // Skip the loop's injected Agora-ritual reminder — not a human turn.
+          if (m.content.startsWith('Before we finish: complete the Agora ritual')) continue;
+          display.push({ kind: 'user', text: m.content });
+        }
+        else if (m.role === 'assistant') {
+          if (m.content) display.push({ kind: 'assistant', text: m.content });
+          for (const tc of m.tool_calls || []) display.push({ kind: 'tool', text: `▶ ${tc.function && tc.function.name}` });
+        } else if (m.role === 'tool') display.push({ kind: 'tool', text: `✔ ${m.name}: ${String(m.content).split('\n')[0].slice(0, 120)}` });
+      }
+      return json(res, 200, { id: sid, display });
+    }
+
     if (url.pathname === '/api/agora' && req.method === 'GET') {
       const dir = url.searchParams.get('dir');
       if (!dir || !fs.existsSync(dir)) return json(res, 400, { error: 'Bad dir' });
@@ -217,8 +246,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const { sessionId, dir, message, reset } = await readBody(req);
+      const { sessionId, dir, message, reset, routeOverride } = await readBody(req);
       if (!dir || !fs.existsSync(dir)) return json(res, 400, { error: 'Open a project directory first.' });
+      // Per-message manual route override from the dashboard picker.
+      let override = null;
+      if (routeOverride && typeof routeOverride === 'object') {
+        const { provider, model } = routeOverride;
+        if (!configStore.getProviders(config)[provider]) return json(res, 400, { error: `Unknown provider "${provider}" in route override` });
+        if (typeof model !== 'string' || !model.trim() || model.length > 200) return json(res, 400, { error: 'Bad model id in route override' });
+        override = { provider, model: model.trim() };
+      }
       const sid = sessionId || 'default';
       if (reset) sessions.set(sid, { history: [] });
       else if (!sessions.has(sid)) sessions.set(sid, sessionStore.load(sid) || { history: [] });
@@ -229,7 +266,7 @@ const server = http.createServer(async (req, res) => {
       const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 15000);
 
       try {
-        const newHistory = await runAgent({ root: dir, config, history: session.history, userMessage: message, sessionId: sid, emit, approvals, auditLog });
+        const newHistory = await runAgent({ root: dir, config, history: session.history, userMessage: message, sessionId: sid, emit, approvals, auditLog, routeOverride: override });
         session.history = newHistory.slice(-30);
         sessionStore.save(sid, session);
       } catch (e) {
