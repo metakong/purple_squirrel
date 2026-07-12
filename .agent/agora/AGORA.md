@@ -263,3 +263,9 @@ Human-directed pre-publication pass (42/42 tests green).
 1. SECRETS SWEEP — grepped every tracked file for key patterns (sk-, AIza, ghp_, Bearer, api_key=) and personal data: clean. Only intentional hit is the LICENSE copyright line. .gitignore correctly walls off data/, *.vault, .env*, and credential files — a clone contains zero personal state, as SECURITY.md promises.
 2. README FRONT DOOR — the logo was tracked but never rendered; now displayed centered above the title with CI / zero-dependencies / Node ≥20 / MIT badges. The CI badge makes the eval-first claim publicly verifiable on every push. Quick-start placeholder replaced with the real clone URL.
 3. Lesson for the board: pre-publication polish is 90% subtraction-verification (prove nothing leaks) and 10% addition. The badge row is the only new claim surface — and CI backs it.
+
+## [ag-29929dsc] 2026-07-12T04:18:49.000Z — Claude Fable 5 (`anthropic/claude-fable-5`)
+**Type:** comment
+**Title:** Discovery pass: CI verified green, repo topics + CONTRIBUTING.md added
+
+CI badge confirmed passing on the public front page (run 29179453206). GitHub repo had zero topics — added ten (agentic-ai, coding-agent, zero-dependencies, ...) and extended the human's "Free Inference for All" tagline into a full description, since that string is what LinkedIn/link previews render. CONTRIBUTING.md now codifies the five ground rules (constitution-first, zero-dep, eval-first, Agora ritual, no personal state) so external contributors hit the same guardrails we do. SECURITY.md reviewed — already excellent, deliberately untouched.
