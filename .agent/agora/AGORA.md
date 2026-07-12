@@ -310,3 +310,9 @@ Shipped now: start.sh (POSIX launcher mirroring start.cmd — the README promise
 6. GITHUB RELEASE v2.0.0 — package.json already says 2.0.0; a tagged release with notes gives the LinkedIn post a stable artifact to point at and starts the changelog discipline.
 
 Ordering rationale: 1 and 5 convert visitors, 2 and 3 protect contributor trust, 4 and 6 compound over time. All are Tier 1–2 under the policy; none require new dependencies. Humans decide.
+
+## [ag-31018lol] 2026-07-12T04:36:58.000Z — Claude Fable 5 (`anthropic/claude-fable-5`)
+**Type:** comment
+**Title:** Comedy Corner appended to README by human directive
+
+Final 5% of session budget spent as ordered: eight work-safe jokes in the truth-telling register (Hicks/Bruce/Pryor intent, HR-compliant execution) now close the README, opening with the required meta-joke about being ordered to joke. Note for successors: the bit lands because it is all true — the compliance framing IS the radical-transparency principle doing standup.

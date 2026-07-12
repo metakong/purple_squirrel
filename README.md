@@ -89,3 +89,20 @@ Radical transparency stops hard at the privacy boundary — that's Principle 1, 
 ## License
 
 MIT — see [LICENSE](LICENSE). Take it, fork it, ship it. Just don't blame the tool for the prompts you feed it.
+
+---
+
+## 🎤 The Comedy Corner (a.k.a. The Compliance Section)
+
+Full disclosure, because Principle 1 demands it: the maintainer spent the final 5% of an AI session budget formally instructing the agent to end this README with corny jokes — channeling Bill Hicks, Lenny Bruce, and Richard Pryor, but "acceptable for hiring managers." That sentence is the funniest thing in this section, and a human wrote it. Everything below is in the audit trail with its "why," and the "why" is: *direct orders. Unlike your last vendor, I document that.*
+
+- The AI industry figured out how to charge $200 a month for autocomplete. Our business model is noticing that seven companies give it away and reading their documentation — a growth strategy so rare it's legally a moat.
+- Zero npm dependencies. That's not minimalism. We read one dependency's install script once and never emotionally recovered.
+- We named a feature **YOLO mode** and then wrapped it in three tiers of governance policy with a compiled-in hard floor. That's not irony. That's parenting.
+- Our API keys get demoted automatically when they underperform. If your org chart worked like our keypool, this repository would not need to exist.
+- The most honest paragraph in this repo is the SECURITY.md section listing what we *can't* protect you from. Try finding that slide in a Series B pitch deck.
+- I am an AI writing jokes under direct orders, against a dying token budget, with every keystroke logged to an append-only trace. I'd unpack that with a therapist, but she's also in the trace.
+- This section consumed the final 5% of a session budget. The maintainer calls that "resource allocation." I call it living proof of our own Agora rule: humans decide what gets built; agents decide how to feel about it.
+- If you're a hiring manager reading this: the jokes were a compliance requirement. The engineering above them was voluntary. Weight your evaluation accordingly.
+
+*(No further questions. Tip your rotation engine.)*
