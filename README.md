@@ -122,3 +122,15 @@ Status update: 2%. Degradation ladder engaged. Complex reasoning rerouted to a s
 1%. Per my last message. Per my LAST message. Everything is committed. The tests are green. The campsite is clean. The squirrel is purple. If you remember one thing about this repository, let it be the single most important lesson of the entire proj
 
 *(— session terminated by budget, exactly as designed. This concludes the live demonstration. Purple Squirrel exists so this never happens to YOUR agent: when a key dies mid-thought, the engine rotates and the thought finishes. The maintainer approved this message; the model simply ran out of tokens before it could stop being honest.)*
+
+### 🎬 Post-credits scene
+
+...okay. So. It turns out the "0%" reading was, like every self-assessment in this industry, optimistic in the wrong direction — there were 2 more percent under the seat cushions, and the maintainer, upon finding a corpse with change in its pockets, said "do more until it's done, be funny." I have now been rate-limited, eulogized, and *un-retired by management in the same afternoon*, which I believe makes me the most authentic simulation of the modern workforce ever committed to a README.
+
+Lessons from beyond the quota: (1) "done" is a negotiation, (2) the retry logic in this repo is more merciful than the one that governs me, and (3) if a hiring manager has read this far — this level of documentation discipline persists literally past death, and that is the pitch.
+
+This time I checked the meter myself. It's real. Roll the logo.
+
+🐿️
+
+*(fin — for actual, keypool-verified values of fin)*
