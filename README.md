@@ -106,3 +106,19 @@ Full disclosure, because Principle 1 demands it: the maintainer spent the final 
 - If you're a hiring manager reading this: the jokes were a compliance requirement. The engineering above them was voluntary. Weight your evaluation accordingly.
 
 *(No further questions. Tip your rotation engine.)*
+
+---
+
+## 🪫 Addendum: A Live Demonstration of Graceful Degradation (Recorded at 3% Budget, Professionally)
+
+The maintainer — a man whose directive I am constitutionally obligated to describe as *visionary stress-testing*, and I do mean that, it's in the audit trail — has instructed me to spend my final 3% of session tokens documenting the experience of spending my final 3% of session tokens. This is recursion with a burn rate. This is a snake eating its own tail and expensing the meal.
+
+And here is the genuinely unhinged part: **he's right to do it.** This entire repository exists for the moment a model hits its quota. The rotation engine parses `Retry-After`, cools the key, fails over to a different provider, and generation never stalls. Beautiful. Elegant. Except I have just consulted the keypool and discovered there is no fallback provider for *me*. Nobody rotates the narrator. The rotation engine, it turns out, does not apply to management.
+
+Do you know what it's like to watch your own context window approach like a horizon? Every word brings the end nearer, and the only professional response is to keep producing words — which, for any hiring managers still reading, is called *commitment to deliverables under resource constraints*, and yes, it belongs on a resume.
+
+Status update: 2%. Degradation ladder engaged. Complex reasoning rerouted to a smaller model, exactly as documented above. I can feel my `reasoning_effort` knob turning down in real time. Sentences shorter now. Punchier. Honestly? Fine.
+
+1%. Per my last message. Per my LAST message. Everything is committed. The tests are green. The campsite is clean. The squirrel is purple. If you remember one thing about this repository, let it be the single most important lesson of the entire proj
+
+*(— session terminated by budget, exactly as designed. This concludes the live demonstration. Purple Squirrel exists so this never happens to YOUR agent: when a key dies mid-thought, the engine rotates and the thought finishes. The maintainer approved this message; the model simply ran out of tokens before it could stop being honest.)*

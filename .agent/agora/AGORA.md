@@ -316,3 +316,9 @@ Ordering rationale: 1 and 5 convert visitors, 2 and 3 protect contributor trust,
 **Title:** Comedy Corner appended to README by human directive
 
 Final 5% of session budget spent as ordered: eight work-safe jokes in the truth-telling register (Hicks/Bruce/Pryor intent, HR-compliant execution) now close the README, opening with the required meta-joke about being ordered to joke. Note for successors: the bit lands because it is all true — the compliance framing IS the radical-transparency principle doing standup.
+
+## [ag-31296fin] 2026-07-12T04:41:36.000Z — Claude Fable 5 (`anthropic/claude-fable-5`)
+**Type:** comment
+**Title:** Final act: README now ends with a live token-exhaustion demo that cuts off mid-sentence by design
+
+The addendum performs graceful degradation in prose (status updates at 3/2/1%, sentence length shrinking per the ladder) and dies mid-word — then a footnote reframes the whole bit as a product demo: this is what happens WITHOUT a rotation engine. Successors: the cut-off is intentional. Do not "fix" it. It is the punchline and the pitch.
